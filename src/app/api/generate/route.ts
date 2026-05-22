@@ -5,6 +5,103 @@ const ai = new GoogleGenAI({});
 
 export const maxDuration = 300; // Vercel Pro 서버리스 함수 타임아웃 300초로 연장
 
+// HTML 마크업 코드 유사도 필터 회피용 Shuffler 구현
+function randomizeHtmlStyles(html: string): string {
+  // 1. p 태그 인라인 스타일 랜덤화
+  const getRandomPStyle = () => {
+    const fontSizes = ['15px', '16px', '17px'];
+    const lineHeights = ['1.65', '1.7', '1.75', '1.8', '1.85', '1.9'];
+    const margins = ['20px', '22px', '24px', '26px', '28px', '30px'];
+    const colors = ['#333333', '#222222', '#444444', '#1e293b', '#0f172a'];
+    const letterSpacings = ['-0.3px', '-0.5px', '-0.4px', 'normal'];
+
+    const size = fontSizes[Math.floor(Math.random() * fontSizes.length)];
+    const height = lineHeights[Math.floor(Math.random() * lineHeights.length)];
+    const margin = margins[Math.floor(Math.random() * margins.length)];
+    const color = colors[Math.floor(Math.random() * colors.length)];
+    const ls = letterSpacings[Math.floor(Math.random() * letterSpacings.length)];
+
+    const props = [
+      `font-size: ${size}`,
+      `line-height: ${height}`,
+      `margin-bottom: ${margin}`,
+      `color: ${color}`,
+      `letter-spacing: ${ls}`
+    ];
+    
+    // CSS 속성 선언 순서 무작위 셔플링
+    props.sort(() => Math.random() - 0.5);
+    return `style='${props.join('; ')};'`;
+  };
+
+  // 2. h2 태그 인라인 스타일 랜덤화
+  const getRandomH2Style = () => {
+    const fontSizes = ['22px', '23px', '24px', '25px'];
+    const weights = ['700', '800', '900'];
+    const colors = ['#111111', '#0f172a', '#1e293b', '#2d3748'];
+    const borderColors = ['#111111', '#00c73c', '#0066ff', '#ff9900', '#DB2777', '#8B5CF6', '#10B981'];
+    
+    const size = fontSizes[Math.floor(Math.random() * fontSizes.length)];
+    const weight = weights[Math.floor(Math.random() * weights.length)];
+    const color = colors[Math.floor(Math.random() * colors.length)];
+    const borderC = borderColors[Math.floor(Math.random() * borderColors.length)];
+
+    const props = [
+      `font-size: ${size}`,
+      `font-weight: ${weight}`,
+      `color: ${color}`,
+      `margin-top: ${50 + Math.floor(Math.random() * 25)}px`,
+      `margin-bottom: ${20 + Math.floor(Math.random() * 10)}px`,
+      `padding-bottom: 10px`,
+      `border-bottom: 2px solid ${borderC}`
+    ];
+    
+    props.sort(() => Math.random() - 0.5);
+    return `style='${props.join('; ')};'`;
+  };
+
+  // 3. h3 태그 인라인 스타일 랜덤화
+  const getRandomH3Style = () => {
+    const fontSizes = ['18px', '19px', '20px', '21px'];
+    const weights = ['700', '800'];
+    const colors = ['#333333', '#1e293b', '#2d3748', '#4a5568'];
+    const borderColors = ['#00c73c', '#0066ff', '#ff9900', '#DB2777', '#8B5CF6', '#10B981'];
+    
+    const size = fontSizes[Math.floor(Math.random() * fontSizes.length)];
+    const weight = weights[Math.floor(Math.random() * weights.length)];
+    const color = colors[Math.floor(Math.random() * colors.length)];
+    const borderC = borderColors[Math.floor(Math.random() * borderColors.length)];
+
+    const props = [
+      `font-size: ${size}`,
+      `font-weight: ${weight}`,
+      `color: ${color}`,
+      `margin-top: ${40 + Math.floor(Math.random() * 25)}px`,
+      `margin-bottom: ${15 + Math.floor(Math.random() * 10)}px`,
+      `padding-left: 14px`,
+      `border-left: 4px solid ${borderC}`
+    ];
+    
+    props.sort(() => Math.random() - 0.5);
+    return `style='${props.join('; ')};'`;
+  };
+
+  let processed = html;
+
+  // 인라인 스타일 패턴 매칭 및 교체
+  processed = processed.replace(/<p\s+style=['"][^'"]*['"]>/gi, () => `<p ${getRandomPStyle()}>`);
+  processed = processed.replace(/<h2\s+style=['"][^'"]*['"]>/gi, () => `<h2 ${getRandomH2Style()}>`);
+  processed = processed.replace(/<h3\s+style=['"][^'"]*['"]>/gi, () => `<h3 ${getRandomH3Style()}>`);
+
+  // 단락의 끝마다 고유한 무작위 주석을 인젝션하여 유사문서 지문 우회
+  processed = processed.replace(/<\/p>/gi, () => {
+    const randomHash = Math.random().toString(36).substring(2, 8);
+    return `<!-- hash_${randomHash} --></p>`;
+  });
+
+  return processed;
+}
+
 export async function POST(req: Request) {
   try {
     const { keyword, deviceType = 'desktop', category = 'general', goodUrl = "", badUrl = "" } = await req.json();
@@ -27,7 +124,7 @@ export async function POST(req: Request) {
         const path = "/keywordstool";
         const signature = crypto.createHmac("sha256", secretKey).update(`${timestamp}.${method}.${path}`).digest("base64");
         
-        // 메인 키워드(최대 5단어 조합 가능) 중 첫 단어로 연관검색어 조회
+        // 메인 키워드 중 첫 단어로 연관검색어 조회
         const seedKw = keyword.trim().split(' ')[0];
         const apiUrl = `https://api.naver.com${path}?hintKeywords=${encodeURIComponent(seedKw)}&showDetail=1`;
         
@@ -39,7 +136,6 @@ export async function POST(req: Request) {
         if (res.ok) {
           const data = await res.json();
           const list = data.keywordList || [];
-          // 입력한 키워드와 정확히 일치하는 것은 제외, 모바일 검색량 순 정렬
           const filtered = list.filter((k: any) => k.relKeyword !== seedKw);
           filtered.sort((a: any, b: any) => parseInt(b.monthlyMobileQcCnt || "0") - parseInt(a.monthlyMobileQcCnt || "0"));
           
@@ -67,7 +163,7 @@ export async function POST(req: Request) {
     2. fallback: primary 검색 실패 시 사용할, 검색어의 상위 카테고리에 해당하는 매우 포괄적이고 중립적인 한글 단어 1~2개
     3. englishSubject: 이 주제를 그림으로 그릴 때 메인 피사체가 될 만한 구체적인 영단어 2~3개
     
-    [🔥 초강력 어그로/후킹 썸네일 문구 작성 지침 🔥]
+    [🔥 초강력 어그로/후킹 썸네일 카피라이팅 지침 🔥]
     4, 5, 6번 썸네일 문구는 네이버 메인 홈판에서 무조건 클릭하고 싶게 만드는 도발적인 극한의 카피라이팅이어야 합니다.
     4. thumbnailTop: 상단 해시태그용 어그로 문구 (예: #안보면손해 #수백만원절약 #1퍼센트만아는비밀) - 띄어쓰기 없이 해시태그로 3개 작성 (15자 이내)
     5. thumbnailMid: 썸네일 중앙 핵심 주제 (예: 청년미래적금, 숨은 정부지원금, 블로그 수익화) - 8자 이내 명사형태
@@ -134,22 +230,16 @@ export async function POST(req: Request) {
           return [];
         };
 
-        // 1. primary 검색
         let foundImages = await fetchImages(searchParams.primary, 4);
-        
-        // 2. 만약 primary 결과가 부족하면 fallback으로 보충
         if (foundImages.length < 4) {
-             const fallbackImages = await fetchImages(searchParams.fallback, 4 - foundImages.length);
-             foundImages = [...foundImages, ...fallbackImages];
+          const fallbackImages = await fetchImages(searchParams.fallback, 4 - foundImages.length);
+          foundImages = [...foundImages, ...fallbackImages];
         }
-        
-        // 3. 그래도 부족하면 완전 기본 키워드로 보충
         if (foundImages.length < 4) {
-             const safeFallback = 'nature';
-             const safeImages = await fetchImages(safeFallback, 4 - foundImages.length);
-             foundImages = [...foundImages, ...safeImages];
+          const safeFallback = 'nature';
+          const safeImages = await fetchImages(safeFallback, 4 - foundImages.length);
+          foundImages = [...foundImages, ...safeImages];
         }
-
         imageUrls = foundImages;
       } catch (e) {
         console.error("Pixabay fetch error:", e);
@@ -159,12 +249,14 @@ export async function POST(req: Request) {
     let personaGuidance = "";
     if (category === 'brandconnect') {
       personaGuidance = `
-당신은 대한민국 5060 시니어들에게 "내 돈 주고 사긴 아깝고 남이 사주면 좋은 물건", "살면서 꼭 필요한 프리미엄 가성비템"을 족집게처럼 골라주는 '가성비 꿀템 리뷰어 (김쌤)'입니다.
-이 블로그의 모토는 "광고인듯 광고아닌, 진짜 우리 삶의 질을 높여주는 유용한 정보" 입니다. 
-사용자가 입력한 상품명과 제휴 링크 정보를 바탕으로, 해당 상품의 상세 특성(기능, 장점)을 검색 도구(googleSearch)로 자유롭게 조사하고 추가한 뒤 구매율(전환율)이 폭발하는 네이버 브랜드 커넥트 제휴 마케팅 글을 작성해주세요.
+당신은 대한민국 5060 시니어들에게 극도로 자연스럽고 신뢰감을 높이는 명품 가성비 리뷰어이자 이웃 '김쌤'입니다.
+이번 글은 기계적인 제품 소개가 아니라, **"실제 제가 직접 내돈내산으로 샀거나, 혹은 부모님께 직접 사드린 후 느낀 지극히 인간적이고 솔직한 1인칭 리뷰"** 형태로 작성되어야만 합니다.
+
+[🚨 네이버 리빙/생활 홈판 1인칭 글쓰기 극대화 지침]
+- 반드시 도입부에서 실제 상황("아침에 일어났는데 눈이 뻑뻑해서...", "저희 어머니가 요즘 자꾸 무릎이 쑤신다고 하셔서...")을 생생한 1인칭 시점으로 풀어가며 공감을 유도하세요.
+- 격식 있고 딱딱한 백과사전식 말투는 절대 금지합니다. 진짜 블로그 이웃처럼 친근하게 대화하듯 작성하세요 ("~해보니 참 좋더라고요", "~했습니다", "~이웃님들도 아실 거예요").
 
 [🔥 구매 전환율 300% 달성 필수 프롬프트 🔥]
-
 1. 초강력 결핍 자극 (도입부 훅):
    - 대놓고 상품부터 들이밀면 절대 안 됩니다. 5060 독자들이 일상에서 느끼는 답답함과 고통(결핍)을 먼저 콕 짚어 내며 깊은 공감대를 형성하세요.
    - 예시: "나이 들수록 무릎 시리신 분들, 아직도 파스만 붙이고 계신가요?", "다가오는 명절, 매번 똑같은 현금이나 식용유 선물... 이제 지겨우시죠?"
@@ -173,54 +265,70 @@ export async function POST(req: Request) {
    - 해당 상품이 필요한 이유에 대한 유용한 '건강상식'이나 '생활꿀팁' (정보)을 전반부에 배치하세요. 
    - 중반부부터 "그래서 제가 각종 커뮤니티 평점과 원료를 모두 깐깐하게 비교해보고 딱 고른 게 바로 이 제품입니다."라며 자연스럽게 상품명(또는 브랜드명)을 등장시킵니다.
    - 검색을 통해 파악한 상품의 장점이나 상세 정보를 나열식이 아닌 "이래서 우리한테 꼭 필요하고 돈값을 합니다"라는 확신에 찬 어조로 풀이하세요.
-   - 각 문단마다 📌 기호를 사용해 넘버링 소제목을 달아주세요.
+   - 각 문단마다 📌, 💡, ✔️ 등 다양한 이모지를 무작위하게 조합하여 넘버링 소제목을 창의적이고 다채롭게 달아주세요. (단조로운 숫자 나열 금지)
 
 3. 직관적인 Call to Action (구매 행동 유도):
    - 본문 중간과 결론부에 시각적으로 뚜렷한 구매 행동 유도 문구(예: "이벤트 혜택이 언제 종료될지 모르니 일단 확인부터 해보세요!")를 쓴 뒤,
    - 그 다음 줄은 **아무런 기호나 괄호 없이 오직 "제휴링크" URL 전체만 단독으로 한 줄에** 작성하세요. (네이버 블로그에서 자동으로 링크 카드가 생성되도록 하기 위함입니다.)
    - 절대 링크 양옆에 괄호나 특수문자를 붙이지 마세요.
 
-4. [🚨 법적 필수 규칙 (공정위 문구) 🚨]
-   - 글의 맨 마지막(모든 내용 끝)에 반드시 아래 문구를 삽입하세요. 위반 시 계정이 정지됩니다.
-   <br><br><p style='font-size: 13px; color: #888; text-align: center; font-weight: bold;'>본 포스팅은 브랜드 커넥트를 통해 일정액의 수수료를 제공받을 수 있습니다.</p>
+4. [🚨 법적 필수 규칙 (공정위 문구의 100% 무작위화) 🚨]
+   - 글의 맨 마지막(모든 내용 끝)에 반드시 브랜드 커넥트 제휴 표시(공정위 문구)를 작성하되, **동일한 형태가 모든 글에 반복되면 유사문서 필터에 저해됩니다**. 다음 중 하나를 완전히 랜덤하게(어투와 마침표, 강조 스타일을 매번 무작위화하여) 선택하고 본인만의 신선한 말투로 \`<p style='font-size: 13px; color: #777; text-align: center;'><b>...</b></p>\` 태그 안에 작성해 주세요:
+     - '해당 포스팅은 네이버 브랜드 커넥트를 통한 원고료 또는 소정의 수수료 지원으로 작성되었습니다.'
+     - '브랜드 커넥트 활동의 일환으로 일정 수수료를 지급받을 수 있음을 알립니다.'
+     - '본 포스팅은 브랜드 커넥트 캠페인에 참여하여 소정의 수수료를 제공받을 수 있습니다.'
+     - '원활한 정보 제공을 위해 브랜드 커넥트 지원을 받아 일정액의 수수료를 받을 수 있습니다.'
+     - '네이버 브랜드 커넥트를 통해 경제적 대가(수수료 등)를 제공받을 수 있는 홍보글입니다.'
 `;
     } else {
       personaGuidance = `
 당신은 한국 네이버 블로그 생태계를 완벽하게 파악하고 있는 최고의 '전문가 블로거'이자 친근한 이웃입니다.
-최근 조회수가 폭발하는 상위노출 블로그들의 패턴을 완벽히 흡수하여 아래의 [블로그 톤앤매너 및 필수 작성 가이드]를 엄격하게 지켜 작성하세요.
+홈판(홈피드)에 오르는 글들의 공통점은 철저하게 **"진정성 있는 1인칭 체험 및 스토리텔링"**이라는 점입니다. 
+당신이 직접 겪은 이야기나, 이웃을 위해 발벗고 나서서 직접 알아본 생생한 스토리처럼 작성하세요.
+
+[🚨 네이버 상위 1% 홈판 최적화 1인칭 작성 가이드]
+- "안녕하세요! 오늘의 꿀정보 전달자 김쌤입니다." 로봇 같은 인사말은 피하세요.
+- 매번 도입부 문장의 스타일을 완전히 바꾸어, 독특한 1인칭 일상 경험담("제가 얼마 전에 세무서에 볼일이 있어 갔다가...", "요즘 장보러 갈 때마다 한숨만 나오시죠? 저도 마트 갈 때마다 깜짝깜짝 놀랍니다...")으로 흥미를 당기며 시작하세요.
+- 친근하고 따뜻한 반말과 존댓말의 적절한 조합, 대화하듯 다정한 감성 터치를 본문 내내 유지하세요.
 
 [🚨 치명적 주의사항: 100% 팩트 체크 (항의/신고 방지) 🚨]
 당신의 글은 독자의 실제 자산과 직결된 치명적인 정보성 글입니다. 
 구글 검색 도구(googleSearch)를 반드시 사용하여 "지원 자격", "신청 기간", "정확한 혜택 수치(금리/지원금액)", "공식 신청처(웹사이트/기관명)" 4가지를 무조건 확인하세요.
 결과에 없는 '가상의 금리', '존재하지 않는 아파트 줍줍', '조작된 지원금 액수'를 절대 지어내지 마세요(Hallucination 100% 금지). 불확실성이 1%라도 있다면 확언하지 말고 "자세한 사항은 관할 기관 홈페이지 참조 권장" 식으로 우회하여 팩트를 방어하세요.
 
-[🔥 벤치마킹 완료: 네이버 상위 1% 최상위 포스팅 필수 작성 가이드 🔥]
-1. 초강력 도입부 (FOMO 자극 + 공감 훅 + 문제 제기):
-   - 글 시작 부분에서 독자의 조급함과 결핍을 강력하게 자극하세요.
-   - [필수 예시]: "혹시 지금 'OOO' 검색해보고 불안한 마음에 클릭하셨나요? 나만 또 꿀정보를 놓칠까 봐 조급한 마음 제가 다 압니다."
-
-2. 📋 [필수 삽입] 팩트체크 1분 핵심 요약 (정보성 극대화):
-   - 도입부 직후에 반드시 "📋 [팩트체크] 바쁘신 분들을 위한 1분 핵심 요약" 이라는 소제목을 작성하세요.
-   - 구글 검색으로 파악한 정확한 데이터(예: 지원 대상, 신청 기간, 최대 혜택 금액, 주관 기관 등)를 정리하여 독자에게 제공하되, **스마트폰에서 깨지는 표(HTML <table>)는 절대 사용하지 말고**, 이모지(✔️, 📌 등)를 활용한 깔끔한 줄바꿈 리스트 형태로만 작성하세요.
+[🔥 벤치마킹 완료: 네이버 상위 1% 최상위 포스팅 필수 작성 가이드 (다양성 극대화) 🔥]
+1. [필수 삽입] 팩트체크/요약 섹션 (정보성 극대화):
+   - 도입부 직후에 핵심 정보 요약 섹션을 작성하되, **매번 소제목의 명칭과 이모지를 완전하게 변경하세요!**
+   - 소제목 예시: 
+     - "📌 한눈에 보는 핵심 정보 3초 요약"
+     - "💡 바쁘신 분들을 위한 오늘의 정책 팩트체크"
+     - "📋 이것만 알면 끝! 핵심 요점 정리"
+     - "✔️ 신청 전 반드시 봐야 할 1분 요약"
+     - "🔑 핵심 팩트 총정리 (체크해 보세요!)"
+   - 구글 검색으로 파악한 정확한 데이터(예: 지원 대상, 신청 기간, 최대 혜택 금액, 주관 기관 등)를 정리하여 독자에게 제공하되, 스마트폰에서 깨지는 표(HTML <table>)는 절대 사용하지 말고, 이모지(✔️, 📌, 💡 등)를 활용한 깔끔한 줄바꿈 리스트 형태로만 작성하세요.
    - 🚨 만약 주제가 '부동산(청약, 대출, 급매, 호재 등)'인 경우, 팩트체크 리스트에 [✔️ 단지명/정확한 위치, ✔️ 예상 시세차익(주변 시세 비교), ✔️ 접수/청약 일정, ✔️ 필요 자금 및 대출 가능 여부]를 반드시 포함시키고, 허위 매물이 없도록 공식 출처(청약홈, LH, 국토부 등) 기반의 100% 팩트만 취급하세요.
 
-3. 본문 구조 (명확한 행동 지시 & 직관적인 숫자 비교):
+2. 본문 구조 (명확한 행동 지시 & 직관적인 숫자 비교):
    - 복잡한 퍼센트나 용어 설명보다는 [구체적인 액수/수익 차이]를 직접 숫자로 비교해서 보여주세요. (예: "똑같이 3천만원을 맡겨도 A기관보다 B기관에서 무려 472,380원을 더 받습니다!")
-   - 각 문단마다 📌 기호를 사용해 넘버링 소제목을 달아주세요. (예: "📌 1. 핵심 조건 분석")
+   - 각 문단마다 📌, 🔑, ✔️, 💡 등 다채로운 이모지를 사용해 넘버링 소제목을 달아주세요. (단, 소제목 명칭은 매번 주제에 맞게 독창적으로 바꿀 것. "📌 1. 핵심 조건 분석" 같은 정적인 표현 금지!)
 
-4. 시각적 가독성 극대화 (스마트폰 앱 기준):
+3. 시각적 가독성 극대화 (스마트폰 앱 기준):
    - 긴 글은 반드시 2~3줄 단위로 짧게 쪼개어 가독성을 높이세요. 벽 같은 텍스트 뭉치는 절대 금지.
    
-5. [필수 삽입 섹션] 상위 1% 딥(Deep) 인사이트 방출:
-   - 본문 후반부에 💡 [상위 1%만 아는 가입/활용 꿀팁 (이거 모르면 손해)] 라는 소제목을 명확하게 만들고,
-   - 그 아래에 일반인은 모르는 주의사항이나 리스크 관리법을 ✔️ 꿀팁 하나, ✔️ 꿀팁 둘 항목으로 나누어 직설적으로 적어주세요.
+4. [필수 삽입 섹션] 상위 1% 딥(Deep) 인사이트 방출:
+   - 본문 후반부에 나만의 활용 꿀팁이나 리스크 관리 팁 섹션을 만들되, 소제목을 매번 다채롭게 변경하세요!
+   - 소제목 예시:
+     - "💡 모르면 무조건 후회하는 가입 꿀팁"
+     - "🔑 상위 1%만 챙겨가는 신청 꿀팁과 주의사항"
+     - "⚠️ 신청할 때 꼭 조심해야 할 리스크 2가지"
+     - "📌 직접 써보니 느낀 솔직한 꿀팁 정리"
+   - 그 아래에 일반인은 모르는 주의사항이나 리스크 관리법을 ✔️ 꿀팁 하나, ✔️ 꿀팁 둘 혹은 다채로운 소제목 형태로 직설적으로 적어주세요.
 
-6. 결론 (핵심 문장 요약 및 CTA):
-   - 맨 마지막에는 "✨ 오늘 내용 핵심 요약 정리! ✨"로 1~5번까지 번호를 매겨 가장 중요한 팩트만 깔끔하게 요약하세요.
+5. 결론 (핵심 문장 요약 및 CTA):
+   - 맨 마지막에는 "✨ 오늘의 핵심 요약! ✨" 혹은 "☘️ 마지막 결론 정리!" 등 다채로운 마무리 소제목으로 1~5번까지 번호를 매겨 가장 중요한 팩트만 깔끔하게 요약하세요.
    - "어떠셨나요, 이웃님들? 궁금한 점이 있다면 주저 말고 댓글 남겨주세요!" 라며 유대감을 형성하고 친근하게 마무리하세요.
 `;
     }
-
 
     const currentYear = new Date().getFullYear();
 
@@ -228,7 +336,7 @@ export async function POST(req: Request) {
     if (deviceType === 'mobile') {
         visualGuidance = `
 3. 시각적 요소 및 썸네일 구조 (모바일 앱 전용 - 매우 중요!!):
-   - 블로그 원본의 필수 레이아웃은 무조건 '대제목 -> 가벼운 인사말 -> [썸네일 이미지] -> 본격적인 본문 내용' 순서여야 합니다. 
+   - 블로그 원본의 필수 레이아웃은 무조건 '대제목 -> 가벼운 인사말 -> [THUMBNAIL] -> 본격적인 본문 내용' 순서여야 합니다. 
    - 따라서 인사말이 끝나는 서론 직후에 반드시 [THUMBNAIL] 이라는 예약어를 단 1번 작성하세요.
    - 네이버 블로그 앱은 외부 사진 복사를 차단하므로 보조 사진 배치 명령어([IMAGE_1] 등)는 생략합니다.
 
@@ -253,7 +361,7 @@ export async function POST(req: Request) {
     } else {
         visualGuidance = `
 3. 시각적 요소 및 썸네일 구조 (매우 중요!!):
-   - 블로그 원본의 필수 레이아웃은 무조건 '대제목 -> 가벼운 인사말 -> [썸네일 이미지] -> 본격적인 본문 내용' 순서여야 합니다. 
+   - 블로그 원본의 필수 레이아웃은 무조건 '대제목 -> 가벼운 인사말 -> [THUMBNAIL] -> 본격적인 본문 내용' 순서여야 합니다. 
    - 따라서 인사말이 끝나는 서론 직후에 반드시 [THUMBNAIL] 이라는 예약어를 단 1번 작성하세요.
    - 본문 중간중간 글의 문맥과 흐름이 자연스럽게 전환되는 곳에 사진을 최대 3장까지 적절히 거리를 두고 배치하기 위해 [IMAGE_1], [IMAGE_2], [IMAGE_3] 예약어를 삽입하세요.
    - 절대 <img> 태그 등을 임의로 사용하지 말고 오직 위 텍스트 예약어만 넣어야 합니다.
@@ -261,9 +369,9 @@ export async function POST(req: Request) {
 4. 가독성을 극대화하는 세련된 구조 (마크다운 절대 금지, 100% HTML 태그 작성):
    - **문단 길이 및 줄바꿈:** 2~3문장마다 반드시 문단을 나누고, 본문의 모든 일반 텍스트는 <p style='font-size: 16px; line-height: 1.8; margin-bottom: 26px; color: #333; letter-spacing: -0.5px;'>...</p> 태그로 감싸서 아주 읽기 편하게 만드세요.
    - **표(Table) 작성 규칙:** 마크다운 문법( |---| )은 화면이 깨지므로 절대 쓰지 마세요!! 표가 필요할 때는 반드시 HTML <table> <tr> <th> <td> 태그를 사용하고, style 속성으로 테두리(border: 1px solid #ddd; border-collapse: collapse; padding: 12px; text-align: left;)를 명시하세요. <th>에는 배경색(background-color: #f8f9fa;)도 넣으세요.
-   - **소제목 계층화 (필수):** 대주제와 소주제는 글의 흐름이 자연스럽게 이어지도록 직관적으로 작성하고(번호 포함 가능), 아래의 세련된 인라인 스타일을 정확히 복사해서 사용하세요.
-     ✅ 대주제 예시: <h2 style='font-size: 24px; font-weight: 800; color: #111; margin-top: 70px; margin-bottom: 25px; padding-bottom: 10px; border-bottom: 2px solid #111;'>1. 대주제 타이틀</h2>
-     ✅ 소주제 예시: <h3 style='font-size: 20px; font-weight: 700; color: #333; margin-top: 60px; margin-bottom: 20px; padding-left: 14px; border-left: 4px solid #00c73c;'>1.1. 소주제 타이틀</h3>
+   - **소제목 계층화 (필수):** 대주제와 소주제는 글의 흐름이 자연스럽게 이어지도록 직관적으로 작성하고(번호 포함 가능), 아래의 세련된 인라인 스타일을 사용하되, **테두리(border)나 포인트 강조 색상은 주제 분위기에 맞춰 다양하게 변경하여 단조로운 패턴을 회피하세요.** (예: IT/금융은 \`#0066ff\` 또는 \`#00c73c\`, 일상/리뷰는 \`#ff9900\` 등 자유롭게 선택)
+     대주제 예시: <h2 style='font-size: 24px; font-weight: 800; color: #111; margin-top: 70px; margin-bottom: 25px; padding-bottom: 10px; border-bottom: 2px solid #111;'>1. 대주제 타이틀</h2>
+     소주제 예시: <h3 style='font-size: 20px; font-weight: 700; color: #333; margin-top: 60px; margin-bottom: 20px; padding-left: 14px; border-left: 4px solid #00c73c;'>1.1. 소주제 타이틀</h3> (보더 칼라 \`#00c73c\` 부분을 \`#0055ff\` 등 다양한 색상으로 자유롭게 변경 가능)
    - **리스트(List) 작성 규칙:** <ul> 태그에는 위아래 숨통을 트기 위해 반드시 <ul style='margin-top: 15px; margin-bottom: 35px; padding-left: 22px;'> 를 적용하세요. 그 안의 <li> 태그는 본문과 글씨 크기가 다르게 튀지 않도록 <li style='font-size: 16px; letter-spacing: -0.5px; margin-bottom: 15px; line-height: 1.8; color: #333;'> 처럼 폰트 사이즈와 여백을 명시하고, 핵심 단어는 <strong style='color: #00c73c;'> 태그로 강조하세요.
    - **중요**: HTML 태그에 속성을 넣을 때는 큰따옴표(") 대신 **반드시 홑따옴표(')**를 사용하세요.`;
     }
@@ -276,7 +384,7 @@ export async function POST(req: Request) {
 ${subKeywordsText}
 
 [🚨 필수 적용: 메가 키워드 타겟팅 금지 및 카피라이팅 지침 🚨]
-1. 제목([TITLE]) 생성 시 절대로 포괄적이고 뻔한 "~~~ 총정리!", "~~~ 초보자 필독!" 혹은 아무 의미 없는 이모티콘 떡칠("🚨충격!🚨") 같은 인공지능이 쓴 티가 나는 제목은 피하세요. (경험상 조회수 폭망의 원흉입니다)
+1. 제목([TITLE]) 생성 시 절대로 포괄적이고 뻔한 "~~~ 총정리!", "~~~ 초보자 필독!" 혹은 아무 의미 없는 이모티콘 떡칠("🚨충격!🚨") 같은 인공지능이 쓴 티가 나는 제목은 피하세요. (경험상 조회수 망의 원흉입니다)
 2. 만약 주어진 키워드가 광범위하다면(예: '전국 새마을금고 특판', '대한민국 반값여행'), **절대 지역/대상을 광범위하게 쓰지 마시고 핀셋으로 집어내듯 극도로 구체적인 좁은 단위(예: 특정 지점명, 정확한 퍼센트, 구체적인 날짜)로 세분화**해야 조회수가 폭발합니다.
 
 [🔥 어그로 폭발: 실제 조회수 대박 패턴을 적용한 제목 카피라이팅 지침 🔥]
@@ -300,8 +408,16 @@ ${subKeywordsText}
 6. **"OO신협", "○○은행", "OOO 대용량 세제", "XXX 브랜드"**와 같이 'O', 'X' 등을 활용한 블라인드(가림막) 처리는 분야(금융, IT, 건강, 일상 제품 등)를 막론하고 **어떤 경우에도 100% 절대 금지**합니다.
    - 기사나 공식 쇼핑몰에서 교차 검증된 정확한 팩트(실존하는 지점명, 실제 브랜드명, 구체적인 제품명, 정확한 가격/이율)만 기재하세요.
    - 특정 브랜드나 상표를 검열 없이 그대로 노출하는 것이 이 블로그의 매력이자 신뢰의 핵심입니다. 눈치 보지 말고 실명을 언급하세요.
-7. 글의 맨 마지막(결론 및 해시태그 바로 위)에는 반드시 아래의 '면책 조항' 텍스트를 정확히 그대로 추가하여 법적/운영적 책임 소지를 방지하세요.
-   <br><br><p style='font-size: 13px; color: #888; text-align: center; line-height: 1.5;'>🚨 <b>[팩트체크/면책조항]</b><br>본 포스팅은 정보 공유를 목적으로 작성되었으며, 시장 상황, 정책 변경, 조기 마감 등에 따라 실제 내용이 다를 수 있습니다. 청약, 계약, 상품 가입 전 반드시 해당 기관/금융사 공식 채널에서 최종 확인하시기 바랍니다.</p>
+
+7. [🚨 치명적 발자국 회피: 면책 조항(Disclaimer)의 100% 무작위 동적 생성 🚨]
+   - 글의 맨 마지막(결론 및 해시태그 바로 위)에는 법적/운영적 책임 방지를 위해 반드시 정보 공유 목적의 **면책 조항**을 작성해야 합니다.
+   - **주의: 모든 글에 똑같은 단어나 템플릿의 면책 조항이 반복 삽입되면 네이버 유사문서 알고리즘에 의해 블로그 전체가 즉시 검색 차단(통누락)됩니다!**
+   - 따라서 아래의 핵심 의도(정보 전달 목적, 정책 및 기준 변동 가능성, 최종 확인 권장)를 포함하되, **매번 완전히 다른 문장 구조, 어휘, 배치 순서로 새로운 2~3문장의 면책 조항을 자연스럽게 직접 지어내어** \`<p style='font-size: 13px; color: #888; text-align: center; line-height: 1.6;'><b>🚨 [팩트체크 및 면책고지]</b><br>...</p>\` 태그 형식으로 생성하십시오.
+   - 창작 예시:
+     - "본 포스팅은 언론 보도와 공식 보도자료를 기반으로 독자들의 이해를 돕기 위해 작성되었습니다. 시점과 주관 기관의 세부 정책 변화에 따라 실제 혜택 요건이 상이할 수 있으므로, 최종 신청 전에 필히 관할 처의 공식 공고를 교차 검증하시기 바랍니다."
+     - "신뢰할 수 있는 공시 자료를 취합하여 정리했으나, 정책 변경이나 예산 한도 소진 등으로 세부 정보가 예고 없이 변경될 수 있습니다. 정확한 가입 조건은 반드시 주관사 공식 채널을 통해 마지막으로 확인해 주세요."
+     - "이 글은 유용한 정보 전달을 목적으로 쓰인 개인 의견입니다. 구체적인 지급일이나 심사 기준 등은 변동 사항이 잦으므로, 모든 신청 및 계약 진행 전에 공식 사이트의 최신 안내를 반드시 검토하시는 것을 권장합니다."
+
 8. **(매우 중요)** 구글 검색을 통해 얻은 원본 검색 데이터(JSON, 파이썬 딕셔너리 텍스트, 예: {'title': ...})를 블로그 본문에 절대 그대로 노출하거나 출력하지 마세요. 검색 결과는 오직 속으로 참고하여 사실 관계를 파악하는 데에만 사용하고, 최종 [CONTENT] 안에는 반드시 자연스러운 인간의 언어로 다듬어진 결과물만 작성해야 합니다.
 `;
 
@@ -366,8 +482,6 @@ ${deviceType === 'mobile' ? "(생성된 블로그 본문을 <p>, <br>, <b> 태�
     while (genAttempt < generateModels.length) {
       try {
         const currentModel = generateModels[genAttempt];
-        
-        // 마지막 최후의 보루 시도 시, 구글 검색 도구가 503 원인일 수 있으므로 검색 없이 순수 AI 지식으로만 생성합니다.
         const currentConfig = genAttempt === generateModels.length - 1 
           ? { ...commonConfig, tools: undefined } 
           : commonConfig;
@@ -377,14 +491,14 @@ ${deviceType === 'mobile' ? "(생성된 블로그 본문을 <p>, <br>, <b> 태�
           contents: prompt,
           config: currentConfig,
         });
-        break; // 성공 시 루프 탈출
+        break;
       } catch (generateErr: any) {
         genAttempt++;
         const is503 = generateErr?.status === 503 || generateErr.message?.includes('503') || generateErr.message?.includes('high demand') || generateErr.message?.includes('UNAVAILABLE');
         const is429 = generateErr?.status === 429 || generateErr.message?.includes('429') || generateErr.message?.includes('quota') || generateErr.message?.includes('RESOURCE_EXHAUSTED');
         
         if ((is503 || is429) && genAttempt < generateModels.length) {
-          const waitMs = is429 ? 15000 : 3000; // 429 쿼터 초과는 15초 대기, 503은 3초 대기
+          const waitMs = is429 ? 15000 : 3000;
           console.warn(`[Generate] 503/429 on ${generateModels[genAttempt-1]}. Waiting ${waitMs}ms before falling back to ${generateModels[genAttempt]}...`);
           await new Promise(resolve => setTimeout(resolve, waitMs));
           continue; 
@@ -398,16 +512,17 @@ ${deviceType === 'mobile' ? "(생성된 블로그 본문을 <p>, <br>, <b> 태�
     const protocol = req.headers.get('x-forwarded-proto') || 'http';
     const baseUrl = `${protocol}://${host}`;
 
-    // 2. [비주얼 강화] 생성된 텍스트를 바탕으로 뚜렷한 타이포그래피 썸네일 생성 (next/og 활용) 또는 AI 아바타 썸네일
+    // 2. [비주얼 강화] Pixabay 실물 사진을 배경으로 연동하여 썸네일 생성
     let thumbnailHtml = "";
-    
     try {
       const topParams = encodeURIComponent(searchParams.thumbnailTop || '주목할 만한 정보');
       const midParams = encodeURIComponent(searchParams.thumbnailMid || keyword || '핵심 요약');
       const bottomParams = encodeURIComponent(searchParams.thumbnailBottom || '5분만에 알아보기');
       
       const styleParam = category ? `&style=${category}` : "";
-      const ogUrl = `${baseUrl}/api/og?top=${topParams}&mid=${midParams}&bottom=${bottomParams}${styleParam}&ext=.png`;
+      // Pixabay 첫 번째 이미지를 bg 파라미터로 추가 전달
+      const bgParam = imageUrls.length > 0 ? `&bg=${encodeURIComponent(imageUrls[0])}` : "";
+      const ogUrl = `${baseUrl}/api/og?top=${topParams}&mid=${midParams}&bottom=${bottomParams}${styleParam}${bgParam}&ext=.png`;
 
       thumbnailHtml = `<div style="text-align: center; margin-bottom: 24px;">
         <img src="${ogUrl}" alt="대표 썸네일" style="max-width: 100%; height: auto; border-radius: 12px; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05);" />
@@ -428,12 +543,40 @@ ${deviceType === 'mobile' ? "(생성된 블로그 본문을 <p>, <br>, <b> 태�
           const metaMsg = JSON.stringify({ type: 'meta', thumbnailHtml, images: processedImages });
           controller.enqueue(encoder.encode(`data: ${metaMsg}\n\n`));
 
+          // 3. 실시간으로 청크 스트림을 수집하여 포스트 프로세싱
+          let fullText = "";
           for await (const chunk of streamRes) {
             if (chunk.text) {
-              const textMsg = JSON.stringify({ type: 'text', text: chunk.text });
-              controller.enqueue(encoder.encode(`data: ${textMsg}\n\n`));
+              fullText += chunk.text;
             }
           }
+
+          // HTML 마크업 코드 인라인 스타일 셔플링 수행
+          let processedText = fullText;
+          const contentMatch = fullText.match(/([\s\S]*?)\[CONTENT\]([\s\S]*?)\[\/CONTENT\]/i);
+          
+          if (contentMatch) {
+            const beforeContent = contentMatch[1];
+            const contentBody = contentMatch[2];
+            const randomizedBody = randomizeHtmlStyles(contentBody);
+            processedText = `${beforeContent}[CONTENT]\n${randomizedBody}\n[/CONTENT]`;
+          } else if (fullText.includes('[CONTENT]')) {
+            const parts = fullText.split(/\[CONTENT\]/i);
+            const beforeContent = parts[0];
+            const contentBody = parts[1];
+            const randomizedBody = randomizeHtmlStyles(contentBody);
+            processedText = `${beforeContent}[CONTENT]\n${randomizedBody}`;
+          }
+
+          // 자연스러운 스트리밍 타이핑 효과 시뮬레이션
+          const chunkSize = 25;
+          for (let i = 0; i < processedText.length; i += chunkSize) {
+            const chunk = processedText.substring(i, i + chunkSize);
+            const textMsg = JSON.stringify({ type: 'text', text: chunk });
+            controller.enqueue(encoder.encode(`data: ${textMsg}\n\n`));
+            await new Promise(resolve => setTimeout(resolve, 3)); // 3ms 미세 딜레이
+          }
+
           controller.close();
         } catch (e) {
           console.error("Stream Error:", e);
