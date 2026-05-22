@@ -15,6 +15,7 @@ import hashlib
 import base64
 import sys
 from naver_learner import run_learning
+from blog_monitor import run_performance_monitoring
 
 # 윈도우 콘솔 환경에서 이모지 출력 시 발생하는 cp949 인코딩 에러 방지
 if sys.stdout.encoding.lower() != 'utf-8':
@@ -374,11 +375,18 @@ def run_crawler():
             
         df_combined.to_csv(CSV_FILE, index=False, encoding='utf-8-sig')
         print(f"총 {len(df_new)}개의 새로운 트렌드가 {CSV_FILE}에 저장되었습니다. (누적: {len(df_combined)}개)")
-        
-        # 4. GitHub 자동 푸시
-        push_to_github()
     else:
         print("수집된 데이터가 없습니다.")
+
+    # [신규 추가] 6대 멀티 블로그 일간 성과 감시 및 AI 피드백 연동
+    try:
+        print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 6대 블로그 성과 분석 및 AI 자가 진단 가동...")
+        run_performance_monitoring()
+    except Exception as me:
+        print(f"⚠️ 블로그 성과 분석 모니터 구동 실패 (무시하고 진행): {me}")
+
+    # 4. GitHub 자동 푸시
+    push_to_github()
 
 def push_to_github():
     print("GitHub로 변경사항을 푸시합니다...")
@@ -389,10 +397,10 @@ def push_to_github():
             subprocess.run(['git', 'config', '--global', 'user.email', 'github-actions[bot]@users.noreply.github.com'], check=True, cwd=os.getcwd())
             
         # git add
-        subprocess.run(['git', 'add', CSV_FILE, 'naver_style_knowledge.json'], check=True, cwd=os.getcwd(), capture_output=True)
+        subprocess.run(['git', 'add', CSV_FILE, 'naver_style_knowledge.json', 'visitor_stats.csv', 'post_performance.csv', 'blog_insight_report.json'], check=True, cwd=os.getcwd(), capture_output=True)
         
         # git commit
-        commit_msg = f"Auto-update trends: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        commit_msg = f"Auto-update trends & blog insights: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
         res = subprocess.run(['git', 'commit', '-m', commit_msg], cwd=os.getcwd(), capture_output=True)
         
         if res.returncode == 0:

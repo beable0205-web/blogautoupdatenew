@@ -342,12 +342,31 @@ def generate_blog_post(title, summary, link, persona):
         except Exception as ke:
             print(f"⚠️ 네이버 자가 학습 지식 로드 실패: {ke}")
 
+    # [신규 추가] 네이버 멀티 블로그 성과 반성 및 피드백 지침 로드
+    blog_insight_guide = ""
+    insight_path = 'blog_insight_report.json'
+    if os.path.exists(insight_path):
+        try:
+            with open(insight_path, 'r', encoding='utf-8') as f:
+                i_data = json.load(f)
+                report = i_data.get('insight_report', '')
+                if report:
+                    blog_insight_guide = f"""
+[🚨 실시간 네이버 블로그 성과 반성 및 피드백 지침]
+현재 네이버 멀티 블로그 성과 분석에 따른 실시간 작문 및 썸네일 개선 피드백입니다. 이 원고를 생성할 때 다음 행동 강령을 필수적으로 적용하십시오:
+{report}
+"""
+        except Exception as ie:
+            print(f"⚠️ 네이버 성찰 피드백 로드 실패: {ie}")
+
     current_year = datetime.datetime.now().year
 
     prompt = f"""
 {personaGuidance}
 
 {naver_learning_guide}
+
+{blog_insight_guide}
 
 [입력 정보]
 - 뉴스 제목: {title}
