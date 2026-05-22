@@ -9,7 +9,8 @@ import random
 import json
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import datetime
 
 load_dotenv(dotenv_path=".env.local")
@@ -20,7 +21,7 @@ if not GEMINI_API_KEY:
     print("❌ 에러: .env.local 파일에 GEMINI_API_KEY가 없습니다.")
     sys.exit(1)
 
-genai.configure(api_key=GEMINI_API_KEY)
+client = genai.Client(api_key=GEMINI_API_KEY)
 
 # RSS Feeds to monitor
 FEEDS = {
@@ -196,22 +197,31 @@ def generate_blog_post(title, summary, link, persona):
     }
     
     try:
-        init_model = genai.GenerativeModel('gemini-2.5-flash')
-        init_res = init_model.generate_content(
-            translate_prompt,
-            generation_config=genai.types.GenerationConfig(
-                temperature=0.1,
-                response_mime_type="application/json"
-            )
-        )
-        json_str = init_res.text.strip()
-        if json_str.startswith("```json"):
-            json_str = json_str[7:]
-        if json_str.endswith("```"):
-            json_str = json_str[:-3]
-        search_params = json.loads(json_str.strip())
+        models_thumbnail = ['gemini-3.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash']
+        init_res = None
+        for model_name in models_thumbnail:
+            try:
+                init_res = client.models.generate_content(
+                    model=model_name,
+                    contents=translate_prompt,
+                    config=types.GenerateContentConfig(
+                        temperature=0.1,
+                        response_mime_type="application/json"
+                    )
+                )
+                break
+            except Exception as e:
+                print(f"⚠️ 썸네일 추출 중 {model_name} 실패, 다음 우회: {e}")
+                
+        if init_res:
+            json_str = init_res.text.strip()
+            if json_str.startswith("```json"):
+                json_str = json_str[7:]
+            if json_str.endswith("```"):
+                json_str = json_str[:-3]
+            search_params = json.loads(json_str.strip())
     except Exception as e:
-        print(f"⚠️ 썸네일 파라미터 1차 추출 실패, 기본값 사용: {e}")
+        print(f"⚠️ 썸네일 파라미터 1차 추출 최종 실패, 기본값 사용: {e}")
 
     PIXABAY_API_KEY = os.environ.get("PIXABAY_API_KEY")
     image_urls = []
@@ -362,17 +372,41 @@ def generate_blog_post(title, summary, link, persona):
 """
 
     try:
-        try:
-            model = genai.GenerativeModel(
-                'gemini-2.5-flash',
-                tools='google_search',
-                system_instruction="당신은 블로그 포스팅 작가를 돕는 보조 AI입니다. 구글 검색 결과를 통해 팩트를 체크하되, 절대로 검색 결과의 원본 데이터(JSON이나 파이썬 딕셔너리 구조, {'title': ...})를 사용자에게 그대로 노출하거나 본문에 출력하지 마세요. 오직 깔끔하게 다듬어진 블로그 [CONTENT] 텍스트만 출력해야 합니다."
-            )
-        except Exception as e:
-            print(f"⚠️ google_search 툴을 장착할 수 없어 기본 모델로 가동합니다: {e}")
-            model = genai.GenerativeModel('gemini-2.5-flash')
+        models_content = ['gemini-3.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash']
+        response = None
+        last_content_err = None
+        
+        for model_name in models_content:
+            try:
+                try:
+                    config = types.GenerateContentConfig(
+                        system_instruction="당신은 블로그 포스팅 작가를 돕는 보조 AI입니다. 구글 검색 결과를 통해 팩트를 체크하되, 절대로 검색 결과의 원본 데이터(JSON이나 파이썬 딕셔너리 구조, {'title': ...})를 사용자에게 그대로 노출하거나 본문에 출력하지 마세요. 오직 깔끔하게 다듬어진 블로그 [CONTENT] 텍스트만 출력해야 합니다.",
+                        tools=[types.Tool(google_search=types.GoogleSearch())]
+                    )
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=prompt,
+                        config=config
+                    )
+                    break
+                except Exception as search_err:
+                    print(f"⚠️ {model_name} google_search 장착 실패로 툴 없이 재시도합니다: {search_err}")
+                    config = types.GenerateContentConfig(
+                        system_instruction="당신은 블로그 포스팅 작가를 돕는 보조 AI입니다. 절대로 검색 결과의 원본 데이터(JSON이나 파이썬 딕셔너리 구조)를 사용자에게 그대로 노출하거나 본문에 출력하지 마세요. 오직 깔끔하게 다듬어진 블로그 [CONTENT] 텍스트만 출력해야 합니다."
+                    )
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=prompt,
+                        config=config
+                    )
+                    break
+            except Exception as e:
+                print(f"⚠️ {model_name} 본문 생성 실패, 다음 우회: {e}")
+                last_content_err = e
 
-        response = model.generate_content(prompt)
+        if not response:
+            raise last_content_err if last_content_err else Exception("본문 생성 최종 실패")
+            
         full_text = response.text
         
         # 포스트 프로세싱 & HTML 스타일 셔플링
@@ -385,6 +419,23 @@ def generate_blog_post(title, summary, link, persona):
             
             # HTML 스타일 셔플링 적용!
             randomized_body = randomize_html_styles(content_body)
+            
+            # [제휴마케팅 저품질 회피용 댓글 우회 및 인젝션 꿀팁 적용]
+            if persona == 'brandconnect' and link:
+                # 50% 확률로 본문 내 직접 링크를 댓글 유도 CTA로 변환
+                if random.random() < 0.5:
+                    comment_ctas = [
+                        "이벤트 혜택이 언제 종료될지 모르니 일단 확인부터 해보세요!\n\n💡 <b>[최저가 및 추가 혜택 링크는 첫 번째 댓글에 고정해 두었습니다! 확인해 보세요 😊]</b>",
+                        "한정 수량이니 늦지 않게 확인해 보시길 권해드려요.\n\n📌 <b>[공식 최저가 혜택 바로가기 링크는 첫 번째 댓글에 남겨 놓았습니다!]</b>",
+                        "워낙 인기가 많아 금방 품절될 수 있으니 서두르세요!\n\n✔ <b>[상세 정보와 10% 추가할인 링크는 댓글창의 첫 번째 댓글을 참고해 주세요!]</b>"
+                    ]
+                    chosen_cta = random.choice(comment_ctas)
+                    if link in randomized_body:
+                        randomized_body = randomized_body.replace(link, chosen_cta)
+                    else:
+                        randomized_body += f"\n\n<p style='font-size: 16px; text-align: center; color: #1e293b;'>{chosen_cta}</p>"
+                    
+                    randomized_body += f"\n\n<!-- [🚨네이버 저품질 방지 우회] 첫댓글 삽입용 제휴 링크 주소: {link} -->"
             
             # [THUMBNAIL] 예약어 치환
             if "[THUMBNAIL]" in randomized_body:
@@ -520,8 +571,93 @@ def process_brandconnect_csv():
         print("❌ 브랜드 커넥트 콘텐츠 생성 실패")
 
 
+def process_trends_csv():
+    os.makedirs('outputs', exist_ok=True)
+    csv_file = 'collected_trends.csv'
+    if not os.path.exists(csv_file):
+        print("❌ 실시간 트렌드 CSV 파일이 없습니다. 건너뜁니다.")
+        return
+
+    rows = []
+    # UTF-8 with BOM 대응을 위해 utf-8-sig 사용
+    with open(csv_file, 'r', encoding='utf-8-sig') as f:
+        reader = csv.DictReader(f)
+        fieldnames = reader.fieldnames
+        for row in reader:
+            rows.append(row)
+            
+    if not rows:
+        print("ℹ️ 수집된 실시간 트렌드가 없습니다.")
+        return
+
+    # '상태' 컬럼이 없는 기존 행을 대비해 채워줌
+    for row in rows:
+        if '상태' not in row:
+            row['상태'] = '완료'
+
+    # 상태가 "대기"인 첫 번째 트렌드 키워드 찾기
+    target_idx = -1
+    for i, row in enumerate(rows):
+        if row.get('상태', '').strip() == '대기':
+            target_idx = i
+            break
+
+    if target_idx == -1:
+        print("ℹ️ 대기 중인 실시간 트렌드 키워드가 없습니다.")
+        return
+
+    trend = rows[target_idx]
+    raw_title = trend.get('title', '')
+    category = trend.get('category', '도파민/이슈')
+    
+    # 타이틀에서 "[검색량: xxx회]" 부분 정규식으로 정제
+    clean_keyword = re.sub(r'\[검색량:\s*[\d,]+회\]', '', raw_title).strip()
+    
+    print(f"\n⚡ 실시간 황금 트렌드 포스팅 시작: {clean_keyword} (카테고리: {category})")
+    
+    # 카테고리에 맞춰 페르소나 매핑
+    persona = 'economy'
+    if category in ['보조금/지원금/복지', '연금/시니어']:
+        persona = 'health'
+    elif category in ['예적금/특판', '부동산/청약', '세금/절세', '주식/비트코인 한탕주의']:
+        persona = 'economy'
+    else:
+        persona = 'health'
+
+    # 구글 실시간 검색 팩트체크를 유도하며 글 작성
+    result_text = generate_blog_post(clean_keyword, f"주제: {clean_keyword}에 관하여 최신 실시간 이슈와 핵심 팩트 정보를 분석하여 작성하세요. 구글 검색을 적극 활용해야 합니다.", "https://search.naver.com", persona)
+    
+    if result_text:
+        timestamp = int(time.time())
+        safe_title = "".join([c for c in clean_keyword if c.isalpha() or c.isdigit() or c==' ']).rstrip()
+        filename = f"outputs/Trend_{category.replace('/', '_')}_{safe_title[:20]}_{timestamp}.md"
+        
+        with open(filename, 'w', encoding='utf-8') as f:
+            f.write(f"원본 키워드 소스: {raw_title}\n")
+            f.write(f"분류 카테고리: {category}\n\n")
+            f.write(result_text)
+            
+        print(f"💖 실시간 트렌드 자동 포스팅 완료! 저장 위치: {filename}")
+        
+        # 상태 업데이트
+        rows[target_idx]['상태'] = '완료'
+        
+        # CSV 파일 업데이트
+        if fieldnames and '상태' not in fieldnames:
+            fieldnames = list(fieldnames) + ['상태']
+            
+        with open(csv_file, 'w', encoding='utf-8-sig', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            writer.writerows(rows)
+    else:
+        print("❌ 실시간 트렌드 콘텐츠 생성 실패")
+
+
 if __name__ == "__main__":
     process_feeds()
     print("="*50)
     process_brandconnect_csv()
+    print("="*50)
+    process_trends_csv()
     print("="*50)

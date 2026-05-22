@@ -4,7 +4,8 @@ import requests
 from bs4 import BeautifulSoup
 import schedule
 import pandas as pd
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from dotenv import load_dotenv
 from datetime import datetime
 import subprocess
@@ -26,8 +27,35 @@ if not GEMINI_API_KEY:
     print("오류: GEMINI_API_KEY가 없습니다. (.env.local 또는 깃허브 시크릿을 확인하세요)")
     exit(1)
 
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel('gemini-2.5-flash')
+client = genai.Client(api_key=GEMINI_API_KEY)
+
+# 최신 모델 Fallback 연동 헬퍼 함수 정의
+def generate_with_fallback(prompt, config=None, system_instruction=None):
+    models_to_try = ['gemini-3.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash']
+    last_err = None
+    for model_name in models_to_try:
+        try:
+            actual_config = config
+            if system_instruction:
+                if not actual_config:
+                    actual_config = types.GenerateContentConfig(system_instruction=system_instruction)
+                else:
+                    if isinstance(actual_config, dict):
+                        actual_config['system_instruction'] = system_instruction
+                        actual_config = types.GenerateContentConfig(**actual_config)
+                    elif isinstance(actual_config, types.GenerateContentConfig):
+                        actual_config.system_instruction = system_instruction
+            
+            res = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=actual_config
+            )
+            return res
+        except Exception as e:
+            print(f"⚠️ {model_name} 호출 실패, 다음 모델로 우회합니다: {e}")
+            last_err = e
+    raise last_err
 
 # 네이버 검색광고 API 키 로드
 NAVER_AD_CUSTOMER_ID = os.getenv('NAVER_AD_CUSTOMER_ID')
@@ -178,7 +206,7 @@ def generate_daily_breakthrough_strategy(past_keywords):
     따라서 제안하는 3개의 전략 중 **최소 1~2개는 반드시 부동산/주거/대출 관련 숨겨진 틈새 시장(예: 지역별 폭락, 특정 대출 정책 등)**이어야 합니다.
     """
     try:
-        response = model.generate_content(prompt)
+        response = generate_with_fallback(prompt)
         return response.text.strip()
     except Exception as e:
         print(f"전략 수립 중 오류 발생: {e}")
@@ -237,7 +265,7 @@ def extract_golden_keywords_with_gemini(daum_headlines, nate_stories, strategy):
     prompt += "\n".join(all_issues)
     
     try:
-        response = model.generate_content(prompt)
+        response = generate_with_fallback(prompt)
         text = response.text.strip()
         
         results = []
@@ -289,15 +317,17 @@ def run_crawler():
         volumes = get_naver_search_volumes(candidates)
         
         # 필터링 로직: 1000 ~ 50000 구간의 키워드만 선별
+        # 단, 검색량 조회가 아예 실패했거나(-1) 매칭이 안 된 경우도 트렌드 유지를 위해 통과시킵니다.
         filtered_keywords = []
         for item in refined_keywords:
             k = item['title']
             v = volumes.get(k, -1)
-            # 검색량 조회가 아예 실패했거나(-1), 검색량이 너무 적거나 너무 많은 것은 제외
-            # (단, API가 없을 경우를 대비해 -1은 일단 통과시킬 수도 있지만, 여기서는 -1은 제외)
             if NAVER_AD_CUSTOMER_ID and NAVER_AD_ACCESS_LICENSE and NAVER_AD_SECRET_KEY:
-                if 1000 <= v <= 50000:
-                    item['title'] = f"{k} [검색량: {v:,}회]"
+                if 1000 <= v <= 50000 or v == -1:
+                    if v != -1:
+                        item['title'] = f"{k} [검색량: {v:,}회]"
+                    else:
+                        item['title'] = k
                     filtered_keywords.append(item)
             else:
                 # API 키가 없으면 필터링 없이 통과
@@ -311,7 +341,8 @@ def run_crawler():
                 'timestamp': timestamp,
                 'source': 'AI+Data Refined',
                 'category': item['category'],
-                'title': item['title']
+                'title': item['title'],
+                '상태': '대기'
             })
             
     # 3. CSV 저장 및 중복 제거
@@ -320,6 +351,8 @@ def run_crawler():
         
         if os.path.exists(CSV_FILE):
             df_old = pd.read_csv(CSV_FILE)
+            if '상태' not in df_old.columns:
+                df_old['상태'] = '완료'  # 기존 데이터는 이미 완료로 처리하여 중복 발행 방지
             df_combined = pd.concat([df_old, df_new], ignore_index=True)
             # 같은 출처, 카테고리, 제목이면 중복으로 보고 제거
             df_combined.drop_duplicates(subset=['source', 'category', 'title'], keep='last', inplace=True)
