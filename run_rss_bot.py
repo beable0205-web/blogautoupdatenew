@@ -324,11 +324,30 @@ def generate_blog_post(title, summary, link, persona):
 
 해시태그: 맨 마지막에 상품 종류와 문맥에 완전히 부합하는 태그 4~6개(예: #부모님선물 #가성비꿀템 #생활꿀팁 등)를 다양하게 조합해 띄어쓰기로 생성하십시오.
 """
-    
+    # [신규 추가] 최신 네이버 상위 노출 자가 학습 지침 로드
+    naver_learning_guide = ""
+    knowledge_path = 'naver_style_knowledge.json'
+    if os.path.exists(knowledge_path):
+        try:
+            with open(knowledge_path, 'r', encoding='utf-8') as f:
+                k_data = json.load(f)
+                guide = k_data.get('style_guide', '')
+                keyword_learned = k_data.get('target_keyword', '')
+                if guide:
+                    naver_learning_guide = f"""
+[🚨 실시간 네이버 상위 노출 자가 학습 결과 반영 지침]
+최근 네이버 블로그 영역에서 실제로 상위 노출되고 있는 '{keyword_learned}' 관련 최우수 블로그들의 작성 스타일 분석 결과입니다. 원고 생성 시 다음 지침을 핵심으로 반영하십시오:
+{guide}
+"""
+        except Exception as ke:
+            print(f"⚠️ 네이버 자가 학습 지식 로드 실패: {ke}")
+
     current_year = datetime.datetime.now().year
 
     prompt = f"""
 {personaGuidance}
+
+{naver_learning_guide}
 
 [입력 정보]
 - 뉴스 제목: {title}

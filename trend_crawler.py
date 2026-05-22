@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import requests
 from bs4 import BeautifulSoup
@@ -13,6 +14,7 @@ import hmac
 import hashlib
 import base64
 import sys
+from naver_learner import run_learning
 
 # 윈도우 콘솔 환경에서 이모지 출력 시 발생하는 cp949 인코딩 에러 방지
 if sys.stdout.encoding.lower() != 'utf-8':
@@ -336,6 +338,17 @@ def run_crawler():
         # 필터링 후 최대 10개만 저장
         filtered_keywords = filtered_keywords[:10]
         
+        # [신규 추가] 가장 핫한 최상위 1위 키워드를 기반으로 실시간 네이버 블로그 검색 상위 노출 스타일 자가 학습 가동
+        if filtered_keywords:
+            top_k_keyword = filtered_keywords[0]['title']
+            # 검색량 꼬리표가 붙어 있다면 제거 후 원래 키워드만 전달
+            clean_keyword = re.sub(r'\s*\[검색량:.*\]\s*', '', top_k_keyword)
+            print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 최신 키워드({clean_keyword}) 기반 네이버 블로그 실시간 자가 학습 가동...")
+            try:
+                run_learning(clean_keyword)
+            except Exception as le:
+                print(f"⚠️ 네이버 실시간 자가 학습 구동 실패 (무시하고 진행): {le}")
+        
         for item in filtered_keywords:
             new_data.append({
                 'timestamp': timestamp,
@@ -376,7 +389,7 @@ def push_to_github():
             subprocess.run(['git', 'config', '--global', 'user.email', 'github-actions[bot]@users.noreply.github.com'], check=True, cwd=os.getcwd())
             
         # git add
-        subprocess.run(['git', 'add', CSV_FILE], check=True, cwd=os.getcwd(), capture_output=True)
+        subprocess.run(['git', 'add', CSV_FILE, 'naver_style_knowledge.json'], check=True, cwd=os.getcwd(), capture_output=True)
         
         # git commit
         commit_msg = f"Auto-update trends: {datetime.now().strftime('%Y-%m-%d %H:%M')}"
@@ -396,10 +409,10 @@ if __name__ == "__main__":
         # 클라우드 환경: 딱 한 번만 실행 후 종료
         run_crawler()
     else:
-        # 로컬 환경: 처음 1회 실행 후 1시간 간격 무한 반복
+        # 로컬 환경: 처음 1회 실행 후 3시간 간격 무한 반복
         run_crawler()
-        schedule.every(1).hours.do(run_crawler)
-        print("\n1시간 간격 트렌드 크롤러가 시작되었습니다. (종료하려면 Ctrl+C를 누르세요)")
+        schedule.every(3).hours.do(run_crawler)
+        print("\n3시간 간격 트렌드 크롤러가 시작되었습니다. (종료하려면 Ctrl+C를 누르세요)")
         while True:
             schedule.run_pending()
             time.sleep(60)
