@@ -145,20 +145,32 @@ def check_search_rank_optimized(keyword, blog_ids):
         return found_ranks
 
 def generate_with_fallback(prompt, config=None):
-    """Gemini 429 RESOURCE_EXHAUSTED 방지용 예비 모델 교차 우회 호출 헬퍼"""
-    models_to_try = ['gemini-3.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash']
+    """Gemini 429 RESOURCE_EXHAUSTED 방지용 예비 모델 교차 우회 호출 헬퍼 (초저비용 모드 및 429 쿨다운 필터 장착)"""
+    use_low_cost = os.environ.get("USE_LOW_COST_MODEL", "False").strip().lower() == "true"
+    if use_low_cost:
+        print("💡 [blog_monitor] [초저비용 모드 활성화] 성과 분석 피드백에 gemini-2.5-flash 단일 모델을 사용하여 비용을 절감합니다.")
+        models_to_try = ['gemini-2.5-flash']
+    else:
+        models_to_try = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3.5-flash']
+        
     last_err = None
     for model_name in models_to_try:
-        try:
-            res = client.models.generate_content(
-                model=model_name,
-                contents=prompt,
-                config=config
-            )
-            return res
-        except Exception as e:
-            print(f"⚠️ [blog_monitor] {model_name} 호출 실패, 다음 모델로 우회합니다: {e}")
-            last_err = e
+        # 모델별 최대 2회 시도
+        for attempt in range(1, 3):
+            try:
+                res = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=config
+                )
+                return res
+            except Exception as e:
+                print(f"⚠️ [blog_monitor] {model_name} (시도 {attempt}/2) 호출 실패: {e}")
+                last_err = e
+                # Billing Block이나 429/Quota 초과 등이 감지되면 60초 강제 대기
+                if any(x in str(e).lower() for x in ["exceeded", "quota", "billing", "429", "blocked"]):
+                    print("🚨 [blog_monitor] [쿨다운 필터 가동] Rate limit / Billing 한도 도달 감지. 60초 강제 대기합니다...")
+                    time.sleep(60)
     raise last_err
 
 def run_performance_monitoring():

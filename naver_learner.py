@@ -26,6 +26,38 @@ if not GEMINI_API_KEY:
 client = genai.Client(api_key=GEMINI_API_KEY)
 KNOWLEDGE_FILE = 'naver_style_knowledge.json'
 
+import time
+
+def generate_with_fallback(prompt, config=None):
+    """Gemini 429 RESOURCE_EXHAUSTED 방지용 예비 모델 교차 우회 호출 헬퍼 (초저비용 모드 및 429 쿨다운 필터 장착)"""
+    use_low_cost = os.environ.get("USE_LOW_COST_MODEL", "False").strip().lower() == "true"
+    if use_low_cost:
+        print("💡 [naver_learner] [초저비용 모드 활성화] 블로그 스타일 분석에 gemini-2.5-flash 단일 모델을 사용하여 비용을 절감합니다.")
+        models_to_try = ['gemini-2.5-flash']
+    else:
+        models_to_try = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3.5-flash']
+        
+    last_err = None
+    for model_name in models_to_try:
+        # 모델별 최대 2회 시도
+        for attempt in range(1, 3):
+            try:
+                res = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=config
+                )
+                return res
+            except Exception as e:
+                print(f"⚠️ [naver_learner] {model_name} (시도 {attempt}/2) 호출 실패: {e}")
+                last_err = e
+                # Billing Block이나 429/Quota 초과 등이 감지되면 60초 강제 대기
+                if any(x in str(e).lower() for x in ["exceeded", "quota", "billing", "429", "blocked"]):
+                    print("🚨 [naver_learner] [쿨다운 필터 가동] Rate limit / Billing 한도 도달 감지. 60초 강제 대기합니다...")
+                    time.sleep(60)
+    raise last_err
+
+
 def search_naver_blogs(query):
     """네이버 통합 블로그 영역에서 검색어 기반 상위 3개 블로그 URL 수집"""
     encoded_query = urllib.parse.quote(query)
@@ -135,9 +167,8 @@ def analyze_blog_styles(keyword, blog_contents):
     """
     
     try:
-        response = client.models.generate_content(
-            model='gemini-2.5-flash',
-            contents=prompt,
+        response = generate_with_fallback(
+            prompt=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.3
             )
@@ -146,6 +177,7 @@ def analyze_blog_styles(keyword, blog_contents):
     except Exception as e:
         print(f"⚠️ Gemini 벤치마크 학습 실패: {e}")
         return "실제 이웃에게 대화하듯 질문을 던져 공감대를 형성하는 도입부 전략을 사용할 것. 정보 전달 단락에서는 핵심 혜택을 명확히 전달하고, 가독성을 극대화하기 위해 적절한 텍스트 강조 및 구조화된 단락 전개를 활용할 것."
+
 
 def run_learning(target_keyword="부동산 대책 DSR 대출 제한"):
     """자가 학습 프로세스 총괄 컨트롤러"""

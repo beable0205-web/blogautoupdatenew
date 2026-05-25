@@ -32,32 +32,44 @@ if not GEMINI_API_KEY:
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-# 최신 모델 Fallback 연동 헬퍼 함수 정의
+# 최신 모델 Fallback 연동 헬퍼 함수 정의 (초저비용 모드 및 429 쿨다운 필터 장착)
 def generate_with_fallback(prompt, config=None, system_instruction=None):
-    models_to_try = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3.5-flash']
+    use_low_cost = os.environ.get("USE_LOW_COST_MODEL", "False").strip().lower() == "true"
+    if use_low_cost:
+        print("💡 [초저비용 모드 활성화] 전략/키워드 생성에 gemini-2.5-flash 단일 모델을 사용하여 비용을 절감합니다.")
+        models_to_try = ['gemini-2.5-flash']
+    else:
+        models_to_try = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3.5-flash']
+        
     last_err = None
     for model_name in models_to_try:
-        try:
-            actual_config = config
-            if system_instruction:
-                if not actual_config:
-                    actual_config = types.GenerateContentConfig(system_instruction=system_instruction)
-                else:
-                    if isinstance(actual_config, dict):
-                        actual_config['system_instruction'] = system_instruction
-                        actual_config = types.GenerateContentConfig(**actual_config)
-                    elif isinstance(actual_config, types.GenerateContentConfig):
-                        actual_config.system_instruction = system_instruction
-            
-            res = client.models.generate_content(
-                model=model_name,
-                contents=prompt,
-                config=actual_config
-            )
-            return res
-        except Exception as e:
-            print(f"⚠️ {model_name} 호출 실패, 다음 모델로 우회합니다: {e}")
-            last_err = e
+        # 모델별 최대 2회 시도
+        for attempt in range(1, 3):
+            try:
+                actual_config = config
+                if system_instruction:
+                    if not actual_config:
+                        actual_config = types.GenerateContentConfig(system_instruction=system_instruction)
+                    else:
+                        if isinstance(actual_config, dict):
+                            actual_config['system_instruction'] = system_instruction
+                            actual_config = types.GenerateContentConfig(**actual_config)
+                        elif isinstance(actual_config, types.GenerateContentConfig):
+                            actual_config.system_instruction = system_instruction
+                
+                res = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=actual_config
+                )
+                return res
+            except Exception as e:
+                print(f"⚠️ {model_name} (시도 {attempt}/2) 호출 실패: {e}")
+                last_err = e
+                # Billing Block이나 429/Quota 초과 등이 감지되면 60초 강제 대기
+                if any(x in str(e).lower() for x in ["exceeded", "quota", "billing", "429", "blocked"]):
+                    print("🚨 [쿨다운 필터 가동] Rate limit / Billing 한도 도달 감지. 60초 강제 대기합니다...")
+                    time.sleep(60)
     raise last_err
 
 # 네이버 검색광고 API 키 로드
