@@ -34,7 +34,7 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 
 # 최신 모델 Fallback 연동 헬퍼 함수 정의
 def generate_with_fallback(prompt, config=None, system_instruction=None):
-    models_to_try = ['gemini-3.5-flash', 'gemini-2.5-pro', 'gemini-2.5-flash']
+    models_to_try = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3.5-flash']
     last_err = None
     for model_name in models_to_try:
         try:
@@ -292,6 +292,20 @@ def run_crawler():
 
     print(f"[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 크롤링 및 키워드 정제 시작...")
     
+    # 1일 1회만 AI 실시간 학습 및 블로그 성과 모니터링 가동 (토큰 절약 및 Quota 초과 차단)
+    today_date = datetime.now().strftime('%Y-%m-%d')
+    date_file = 'last_ai_analysis_date.txt'
+    should_run_ai_analysis = True
+    
+    if os.path.exists(date_file):
+        try:
+            with open(date_file, 'r', encoding='utf-8') as df:
+                last_date = df.read().strip()
+                if last_date == today_date:
+                    should_run_ai_analysis = False
+        except Exception as de:
+            print(f"⚠️ 날짜 로그 확인 에러: {de}")
+
     new_data = []
     timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
     
@@ -344,11 +358,15 @@ def run_crawler():
             top_k_keyword = filtered_keywords[0]['title']
             # 검색량 꼬리표가 붙어 있다면 제거 후 원래 키워드만 전달
             clean_keyword = re.sub(r'\s*\[검색량:.*\]\s*', '', top_k_keyword)
-            print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 최신 키워드({clean_keyword}) 기반 네이버 블로그 실시간 자가 학습 가동...")
-            try:
-                run_learning(clean_keyword)
-            except Exception as le:
-                print(f"⚠️ 네이버 실시간 자가 학습 구동 실패 (무시하고 진행): {le}")
+            
+            if should_run_ai_analysis:
+                print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 최신 키워드({clean_keyword}) 기반 네이버 블로그 실시간 자가 학습 가동...")
+                try:
+                    run_learning(clean_keyword)
+                except Exception as le:
+                    print(f"⚠️ 네이버 실시간 자가 학습 구동 실패 (무시하고 진행): {le}")
+            else:
+                print(f"\n[건너뜀] 오늘자({today_date}) 네이버 실시간 자가 학습은 이미 수행되었습니다.")
         
         for item in filtered_keywords:
             new_data.append({
@@ -379,11 +397,17 @@ def run_crawler():
         print("수집된 데이터가 없습니다.")
 
     # [신규 추가] 6대 멀티 블로그 일간 성과 감시 및 AI 피드백 연동
-    try:
-        print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 6대 블로그 성과 분석 및 AI 자가 진단 가동...")
-        run_performance_monitoring()
-    except Exception as me:
-        print(f"⚠️ 블로그 성과 분석 모니터 구동 실패 (무시하고 진행): {me}")
+    if should_run_ai_analysis:
+        try:
+            print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 6대 블로그 성과 분석 및 AI 자가 진단 가동...")
+            run_performance_monitoring()
+            # AI 분석이 끝났으므로 날짜 기록
+            with open(date_file, 'w', encoding='utf-8') as df:
+                df.write(today_date)
+        except Exception as me:
+            print(f"⚠️ 블로그 성과 분석 모니터 구동 실패 (무시하고 진행): {me}")
+    else:
+        print(f"\n[건너뜀] 오늘자({today_date}) 블로그 성과 모니터링 및 AI 피드백 분석은 이미 수행되었습니다.")
 
     # 4. GitHub 자동 푸시
     push_to_github()

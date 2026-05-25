@@ -68,7 +68,7 @@ def search_naver_blogs(query):
         return []
 
 def fetch_blog_content(url):
-    """네이버 스마트에디터 ONE (se-main-container) 본문 영역 크롤링"""
+    """네이버 스마트에디터 ONE (se-main-container) 본문 영역 크롤링 및 토큰 최적화용 스마트 정제"""
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
     }
@@ -78,33 +78,43 @@ def fetch_blog_content(url):
         
         soup = BeautifulSoup(response.text, 'html.parser')
         
-        # Smart Editor ONE 규격 본문 컨테이너
+        raw_text = ""
         container = soup.select_one('.se-main-container')
         if container:
-            # 텍스트 추출 (개행 구분 및 공백 정제)
-            text = container.get_text('\n', strip=True)
-            return text
+            raw_text = container.get_text('\n', strip=True)
+        else:
+            post_content = soup.select_one('#postViewArea')
+            if post_content:
+                raw_text = post_content.get_text('\n', strip=True)
+                
+        if not raw_text:
+            return ""
             
-        # 구형 스마트에디터 포맷 대응
-        post_content = soup.select_one('#postViewArea')
-        if post_content:
-            return post_content.get_text('\n', strip=True)
+        # 1. 광고성 상투 문구 및 메타 영역 간이 필터링
+        cleaned = re.sub(r'(서로이웃|서이추|공감|댓글|이웃환영|소정의 수수료|지원받아|포스팅입니다).*', '', raw_text, flags=re.IGNORECASE)
+        # 2. 연속된 다중 개행 및 공백 정제
+        cleaned = re.sub(r'\n+', '\n', cleaned)
+        cleaned = re.sub(r' +', ' ', cleaned)
+        cleaned = cleaned.strip()
+        
+        # 3. 토큰 최적화용 스마트 슬라이싱 (도입부 600자 + 결론부 600자 결합)
+        if len(cleaned) > 1200:
+            half = 600
+            cleaned = cleaned[:half] + "\n[... 중간 내용 중략 ...]\n" + cleaned[-half:]
             
-        return ""
+        return cleaned
     except Exception as e:
         print(f"⚠️ 본문 크롤링 오류 ({url}): {e}")
         return ""
 
 def analyze_blog_styles(keyword, blog_contents):
-    """Gemini 3.5 Flash를 활용한 상위 노출 블로그 작문 스타일 추출 및 SEO 분석 학습"""
+    """Gemini 2.5 Flash를 활용한 상위 노출 블로그 작문 스타일 추출 및 SEO 분석 학습"""
     if not blog_contents:
         return "실제 이웃에게 대화하듯 질문을 던져 공감대를 형성하는 도입부 전략을 사용할 것. 정보 전달 단락에서는 핵심 혜택을 명확히 전달하고, 가독성을 극대화하기 위해 적절한 텍스트 강조 및 구조화된 단락 전개를 활용할 것."
 
     combined_text = ""
     for i, content in enumerate(blog_contents):
-        # API 컨텍스트 절약을 위해 글당 상위 2000자만 결합
-        truncated = content[:2000] if len(content) > 2000 else content
-        combined_text += f"\n--- [상위 블로그 #{i+1} 본문 샘플] ---\n{truncated}\n"
+        combined_text += f"\n--- [상위 블로그 #{i+1} 본문 샘플] ---\n{content}\n"
 
     prompt = f"""
     당신은 네이버 뷰(VIEW) 영역 및 모바일 홈피드 추천 노출 알고리즘을 꿰뚫고 있는 국내 최고 권위의 블로그 SEO 엔지니어이자 마케팅 전문가입니다.
@@ -126,7 +136,7 @@ def analyze_blog_styles(keyword, blog_contents):
     
     try:
         response = client.models.generate_content(
-            model='gemini-3.5-flash',
+            model='gemini-2.5-flash',
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.3
