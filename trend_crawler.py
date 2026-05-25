@@ -332,13 +332,23 @@ def run_crawler():
     if daum_headlines or nate_stories:
         print("\n[AI 조회수 정체 돌파 전략 수립 중 (Agonizing)...]")
         past_keywords = get_past_keywords()
-        strategy = generate_daily_breakthrough_strategy(past_keywords)
+        
+        try:
+            strategy = generate_daily_breakthrough_strategy(past_keywords)
+        except Exception as se:
+            print(f"⚠️ AI 전략 수립 실패 (Billing Block / API 한도 도달 우려): {se}")
+            strategy = "과거 데이터가 부족하여 기본 9대 카테고리(정치, 복지, 예적금, 연금, 부동산, 세금, 이슈 등)를 유지합니다."
+            
         print("================== [AI 오늘의 반성 및 전략] ==================")
         print(strategy)
         print("==============================================================\n")
         
         print("Gemini API로 30개의 맞춤형 황금 키워드 후보 추출 중...")
-        refined_keywords = extract_golden_keywords_with_gemini(daum_headlines, nate_stories, strategy)
+        try:
+            refined_keywords = extract_golden_keywords_with_gemini(daum_headlines, nate_stories, strategy)
+        except Exception as ke:
+            print(f"⚠️ AI 황금 키워드 추출 실패 (API 한도 도달): {ke}")
+            refined_keywords = []
         
         # 네이버 검색량 분석
         print("네이버 검색광고 API를 통한 검색량 기반 필터링 진행 중...")
@@ -451,12 +461,29 @@ def push_to_github():
 if __name__ == "__main__":
     if os.getenv('GITHUB_ACTIONS_ENV'):
         # 클라우드 환경: 딱 한 번만 실행 후 종료
-        run_crawler()
+        try:
+            run_crawler()
+        except Exception as e:
+            print(f"❌ 클라우드 크롤링 실행 실패: {e}")
+            sys.exit(1)
     else:
         # 로컬 환경: 처음 1회 실행 후 3시간 간격 무한 반복
-        run_crawler()
-        schedule.every(3).hours.do(run_crawler)
+        try:
+            run_crawler()
+        except Exception as e:
+            print(f"❌ 초기 크롤링 실행 실패 (스케줄러는 계속 유지됩니다): {e}")
+            
+        def safe_run_crawler():
+            try:
+                run_crawler()
+            except Exception as e:
+                print(f"❌ [스케줄러] 크롤러 주기 실행 중 예외 감지 (데몬 생존): {e}")
+
+        schedule.every(3).hours.do(safe_run_crawler)
         print("\n3시간 간격 트렌드 크롤러가 시작되었습니다. (종료하려면 Ctrl+C를 누르세요)")
         while True:
-            schedule.run_pending()
+            try:
+                schedule.run_pending()
+            except Exception as se:
+                print(f"❌ 스케줄 대기 루프 예외 발생: {se}")
             time.sleep(60)
