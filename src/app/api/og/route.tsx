@@ -108,13 +108,15 @@ export async function GET(request: Request) {
             height: '100%',
             width: '100%',
             display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
+            flexDirection: 'column',
+            alignItems: 'flex-start',
+            justifyContent: 'flex-end',
             backgroundImage: bgUrl ? 'none' : bgGradient,
             backgroundColor: bgUrl ? '#111' : 'transparent',
             fontFamily: 'sans-serif',
             position: 'relative',
             overflow: 'hidden',
+            padding: '80px',
           }}
         >
           {bgUrl && (
@@ -129,118 +131,132 @@ export async function GET(request: Request) {
                 width: '100%', 
                 height: '100%', 
                 objectFit: 'cover', 
-                opacity: 0.90,
-                filter: 'brightness(0.85) contrast(1.05)'
+                opacity: 0.95,
+                filter: 'brightness(0.70) contrast(1.1)'
               }} 
             />
           )}
 
-          {/* Dynamic background visual elements */}
+          {/* 감성 뷰파인더 오버레이 (고화질 카메라 브래킷 & 십자선) */}
+          <div style={{ position: 'absolute', top: '40px', left: '40px', width: '30px', height: '30px', borderTop: '4px solid rgba(255,255,255,0.7)', borderLeft: '4px solid rgba(255,255,255,0.7)' }} />
+          <div style={{ position: 'absolute', top: '40px', right: '40px', width: '30px', height: '30px', borderTop: '4px solid rgba(255,255,255,0.7)', borderRight: '4px solid rgba(255,255,255,0.7)' }} />
+          <div style={{ position: 'absolute', bottom: '40px', left: '40px', width: '30px', height: '30px', borderBottom: '4px solid rgba(255,255,255,0.7)', borderLeft: '4px solid rgba(255,255,255,0.7)' }} />
+          <div style={{ position: 'absolute', bottom: '40px', right: '40px', width: '30px', height: '30px', borderBottom: '4px solid rgba(255,255,255,0.7)', borderRight: '4px solid rgba(255,255,255,0.7)' }} />
+          
+          {/* 중앙 촬영 크로스헤어 데코 */}
+          <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <div style={{ width: '20px', height: '2px', backgroundColor: 'rgba(255,255,255,0.2)' }} />
+            <div style={{ width: '2px', height: '20px', backgroundColor: 'rgba(255,255,255,0.2)', position: 'absolute' }} />
+          </div>
+
+          {/* 세련된 다중 색상 백그라운드 그라데이션 글로우 마스크 (배경이 없을 때만 데코) */}
           {!bgUrl && (
-            <div style={{ position: 'absolute', top: '-15px', left: '50px', display: 'flex', fontSize: 140, fontWeight: 900, color: 'rgba(255, 255, 255, 0.04)', letterSpacing: '0.08em' }}>
-              EDITORIAL
-            </div>
-          )}
-          {!bgUrl && (
-            <div style={{ position: 'absolute', bottom: '-15px', right: '50px', display: 'flex', fontSize: 140, fontWeight: 900, color: 'rgba(255, 255, 255, 0.04)', letterSpacing: '0.08em' }}>
-              MAGAZINE
-            </div>
+            <>
+              <div style={{ position: 'absolute', top: `${glow1Y}px`, left: `${glow1X}px`, width: '500px', height: '500px', borderRadius: '250px', backgroundColor: palette.glow1, opacity: 0.8, filter: 'blur(100px)' }} />
+              <div style={{ position: 'absolute', bottom: `${glow2Y}px`, right: `${glow2X}px`, width: '550px', height: '550px', borderRadius: '275px', backgroundColor: palette.glow2, opacity: 0.7, filter: 'blur(110px)' }} />
+            </>
           )}
 
-          {/* Randomly placed decorative accent patterns to make every thumbnail uniquely identifiable */}
-          <div style={{ position: 'absolute', top: `${glow1Y}px`, left: `${glow1X}px`, width: '350px', height: '350px', borderRadius: '175px', backgroundColor: palette.glow1, opacity: bgUrl ? 0.45 : 0.75, filter: 'blur(70px)' }} />
-          <div style={{ position: 'absolute', bottom: `${glow2Y}px`, right: `${glow2X}px`, width: '400px', height: '400px', borderRadius: '200px', backgroundColor: palette.glow2, opacity: bgUrl ? 0.35 : 0.65, filter: 'blur(80px)' }} />
+          {/* 가독성을 높이기 위한 극적인 하단 그라데이션 암전 패널 */}
+          <div 
+            style={{
+              position: 'absolute',
+              bottom: 0,
+              left: 0,
+              width: '100%',
+              height: '65%',
+              backgroundImage: 'linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.65) 45%, rgba(0,0,0,0.2) 80%, transparent 100%)',
+              pointerEvents: 'none',
+            }}
+          />
 
-          {/* Transparent Glassmorphism Center Box */}
+          {/* 좌측 상단 - 힙한 라이브 메거진 에디토리얼 시그니처 표식 */}
+          <div
+            style={{
+              position: 'absolute',
+              top: '65px',
+              left: '80px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '12px'
+            }}
+          >
+            <div style={{ width: '10px', height: '28px', backgroundColor: '#CCFF00', borderRadius: '2px' }} />
+            <span style={{ fontSize: 24, fontWeight: 900, color: '#CCFF00', letterSpacing: '0.15em' }}>
+              {activeSignature}
+            </span>
+          </div>
+
+          {/* 메인 텍스트 컨테이너 - 100% 좌측 하단 정렬 매거진 스타일 */}
           <div
             style={{
               display: 'flex',
               flexDirection: 'column',
-              alignItems: 'center',
-              justifyContent: 'center',
-              backgroundColor: cardBg,
-              width: `${cardWidth}px`,
-              height: `${cardHeight}px`,
-              borderRadius: `${cardRadius}px`,
-              boxShadow: isDarkTheme ? '0 40px 100px rgba(0,0,0,0.6)' : '0 45px 120px rgba(0,0,0,0.22)',
-              border: `${cardBorderWidth}px solid ${cardBorderColor}`,
-              position: 'relative',
-              padding: '50px',
+              alignItems: 'flex-start',
+              justifyContent: 'flex-end',
+              width: '100%',
+              zIndex: 10,
+              position: 'relative'
             }}
           >
-            {/* Top Hashtags (Sleek pill style) */}
+            {/* Top Hashtags - 쨍한 라임 형광 필약 배지 */}
             <div
               style={{
                 display: 'flex',
-                fontSize: 34,
-                color: isDarkTheme ? '#F8FAFC' : palette.badgeColor,
-                backgroundColor: isDarkTheme ? 'rgba(255,255,255,0.1)' : palette.badgeBg,
-                padding: '12px 32px',
-                borderRadius: '32px',
-                fontWeight: 800,
-                marginBottom: '65px',
-                letterSpacing: '-0.02em',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.05)'
+                fontSize: 32,
+                color: '#111111',
+                backgroundColor: '#CCFF00',
+                padding: '8px 24px',
+                borderRadius: '6px',
+                fontWeight: 900,
+                marginBottom: '40px',
+                letterSpacing: '-0.01em',
+                boxShadow: '0 8px 20px rgba(204,255,0,0.25)'
               }}
             >
               {topTags}
             </div>
 
-            {/* Mid Huge Title */}
+            {/* Mid Huge Title - 잡지 메인 커버 텍스트 */}
             <div
               style={{
                 display: 'flex',
                 flexWrap: 'wrap',
-                justifyContent: 'center',
-                textAlign: 'center',
+                justifyContent: 'flex-start',
+                textAlign: 'left',
                 wordBreak: 'keep-all',
-                fontSize: midSize,
+                fontSize: midSize + 15,
                 fontWeight: 900,
-                color: fontColor,
-                lineHeight: 1.15,
-                letterSpacing: '-0.05em',
-                marginBottom: '18px',
-                padding: '0 30px',
-                textShadow: isDarkTheme ? '0 2px 10px rgba(0,0,0,0.4)' : 'none'
+                color: '#FFFFFF',
+                lineHeight: 1.12,
+                letterSpacing: '-0.04em',
+                marginBottom: '20px',
+                maxWidth: '920px',
+                textShadow: '0 4px 15px rgba(0,0,0,0.8)'
               }}
             >
               {mid}
             </div>
 
-            {/* Bottom Accent Subtitle */}
+            {/* Bottom Accent Subtitle - 시선을 머물게 하는 형광 옐로우 강조 구절 */}
             <div
               style={{
                 display: 'flex',
                 flexWrap: 'wrap',
-                justifyContent: 'center',
-                textAlign: 'center',
+                justifyContent: 'flex-start',
+                textAlign: 'left',
                 wordBreak: 'keep-all',
-                fontSize: bottomSize,
+                fontSize: bottomSize + 10,
                 fontWeight: 900,
-                color: isDarkTheme ? palette.glow1 : palette.bottomColor,
-                lineHeight: 1.15,
-                letterSpacing: '-0.05em',
-                marginBottom: '80px',
-                padding: '0 30px',
-                textShadow: isDarkTheme ? '0 2px 10px rgba(0,0,0,0.4)' : 'none'
+                color: '#FACC15',
+                lineHeight: 1.12,
+                letterSpacing: '-0.04em',
+                marginBottom: '15px',
+                maxWidth: '920px',
+                textShadow: '0 4px 15px rgba(0,0,0,0.8)'
               }}
             >
               {bottom}
-            </div>
-
-            {/* Decorative metadata/signature at the bottom */}
-            <div
-              style={{
-                position: 'absolute',
-                bottom: '55px',
-                display: 'flex',
-                fontSize: 24,
-                color: isDarkTheme ? 'rgba(255,255,255,0.35)' : '#94A3B8',
-                fontWeight: 700,
-                letterSpacing: '0.12em',
-              }}
-            >
-              {activeSignature}
             </div>
           </div>
         </div>
@@ -250,6 +266,7 @@ export async function GET(request: Request) {
         height: 1080,
       }
     );
+
   } catch (e: unknown) {
     console.log(`${e instanceof Error ? e.message : 'Unknown Error'}`);
     return new Response(`Failed to generate the image`, {
