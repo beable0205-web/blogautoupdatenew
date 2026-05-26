@@ -312,7 +312,11 @@ def run_crawler():
     date_file = 'last_ai_analysis_date.txt'
     should_run_ai_analysis = True
     
-    if os.path.exists(date_file):
+    # 6월 1일 결제 리셋 전까지 비용 극소화를 위해 고토큰 AI 자가 학습 및 성과 모니터링은 무조건 스킵합니다.
+    if datetime.now() < datetime(2026, 6, 1, 0, 0, 0):
+        print("📉 [비용 극최소화 모드] 6월 1일 자정 전까지 고토큰 소모가 일어나는 AI 자가학습 및 성과 모니터링을 무조건 일시 중지합니다.")
+        should_run_ai_analysis = False
+    elif os.path.exists(date_file):
         try:
             with open(date_file, 'r', encoding='utf-8') as df:
                 last_date = df.read().strip()
@@ -482,8 +486,10 @@ if __name__ == "__main__":
             except Exception as e:
                 print(f"❌ [스케줄러] 크롤러 주기 실행 중 예외 감지 (데몬 생존): {e}")
 
-        schedule.every(3).hours.do(safe_run_crawler)
-        print("\n3시간 간격 트렌드 크롤러가 시작되었습니다. (종료하려면 Ctrl+C를 누르세요)")
+        # 6월 1일 이전에는 12시간 주기로 크롤러 작동을 크게 늦추어 비용을 극소화합니다.
+        crawler_interval = 12 if datetime.now() < datetime(2026, 6, 1, 0, 0, 0) else 3
+        schedule.every(crawler_interval).hours.do(safe_run_crawler)
+        print(f"\n🚀 [{crawler_interval}시간] 간격 트렌드 크롤러가 시작되었습니다. (종료하려면 Ctrl+C를 누르세요)")
         while True:
             try:
                 schedule.run_pending()

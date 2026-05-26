@@ -622,9 +622,14 @@ def check_freeze_until_june():
 
 if __name__ == "__main__":
     if not check_freeze_until_june():
-        process_feeds()
-        print("="*50)
-        process_brandconnect_csv()
-        print("="*50)
-        process_trends_csv()
-        print("="*50)
+        # 6월 1일 결제 리셋 전까지 비용을 극소화하기 위해, 토큰 소비가 많은 RSS 수집 및 제휴 제품 글 생성은 임시 건너뛰고 가장 중요한 실시간 트렌드 1개만 선별 발행합니다.
+        if datetime.datetime.now() < datetime.datetime(2026, 6, 1, 0, 0, 0):
+            print("📉 [비용 극최소화 가동] 6월 1일 자정 전까지는 RSS 피드와 브랜드커넥트 처리를 건너뛰고, 오직 최신 트렌드 1개만 압축 생성합니다.")
+            process_trends_csv()
+        else:
+            process_feeds()
+            print("="*50)
+            process_brandconnect_csv()
+            print("="*50)
+            process_trends_csv()
+            print("="*50)
