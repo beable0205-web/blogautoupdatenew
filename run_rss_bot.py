@@ -617,14 +617,7 @@ def process_trends_csv():
 
 
 def check_freeze_until_june():
-    today = datetime.datetime.now()
-    freeze_until = datetime.datetime(2026, 6, 1, 0, 0, 0)
-    if today < freeze_until:
-        remaining_seconds = (freeze_until - today).total_seconds()
-        remaining_days = remaining_seconds / 86400
-        print(f"⚠️ [비용 보호 모드 작동] 6월 1일 결제 한도 리셋 전까지 추가 과금 방지를 위해 포스팅 생성이 일시 동결됩니다.")
-        print(f"⌛ 6월 1일 오전 0시까지 약 {remaining_days:.2f}일 대기합니다. (과금 청구 $0)")
-        return True
+    # 유저의 API 한도 증액(12,000원)에 따라 비용 보호 모드를 일시 비활성화하고 즉시 정상 가동합니다.
     return False
 
 if __name__ == "__main__":
