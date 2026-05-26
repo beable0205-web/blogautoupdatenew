@@ -2,5 +2,5 @@ requests
 beautifulsoup4
 schedule
 pandas
-google-generativeai
+google-genai
 python-dotenv
