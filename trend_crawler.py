@@ -296,6 +296,16 @@ def extract_golden_keywords_with_gemini(daum_headlines, nate_stories, strategy):
         return []
 
 def run_crawler():
+    # 6월 1일 결제 리셋 전까지 과금 차단 동결 필터
+    today = datetime.now()
+    freeze_until = datetime(2026, 6, 1, 0, 0, 0)
+    if today < freeze_until:
+        remaining_seconds = (freeze_until - today).total_seconds()
+        remaining_days = remaining_seconds / 86400
+        print(f"⚠️ [비용 보호 모드 작동] 6월 1일 결제 리셋 전까지 과금 차단을 위해 크롤러 기동이 임시 동결됩니다.")
+        print(f"⌛ 6월 1일 오전 0시까지 약 {remaining_days:.2f}일 동안 대기 루프를 유지합니다. (과금 청구 $0)")
+        return
+
     print(f"\n[{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}] 최신 데이터 동기화 (Git Pull)...")
     try:
         subprocess.run(['git', 'pull', '--rebase'], check=True, cwd=os.getcwd(), capture_output=True)
