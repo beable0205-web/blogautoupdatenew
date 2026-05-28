@@ -368,9 +368,18 @@ export default function Home() {
                   <label htmlFor="trendCoreKeyword" className="block text-sm font-semibold">
                     트렌드 추출용 핵심 키워드 <span className="text-slate-400 font-normal">(선택)</span>
                   </label>
-                    <input
+                  <input
                     id="trendCoreKeyword"
-                                   {/* 10 Core Bot Modes (2 Columns x 5 Rows) - 비즈니스/경제 10대 황금 카테고리 재편 */}
+                    type="text"
+                    value={trendCoreKeyword}
+                    onChange={(e) => setTrendCoreKeyword(e.target.value)}
+                    placeholder="예) 60대 비즈니스 경제"
+                    className="w-full px-4 py-3 rounded-md border border-slate-300 bg-white text-slate-900 placeholder-slate-400 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none transition-all shadow-sm"
+                  />
+                  <p className="text-xs text-slate-500">두 번째 블로그 추출 시 키워드를 기반으로 연관 롱테일을 찾아옵니다.</p>
+                </div>
+
+                {/* 10 Core Bot Modes (2 Columns x 5 Rows) - 비즈니스/경제 10대 황금 카테고리 재편 */}
                 <div className="grid grid-cols-2 gap-0 border border-slate-300 rounded-md overflow-hidden bg-slate-200 gap-[1px]">
                   {/* Row 1 */}
                   <button type="button" onClick={() => toggleBotSelection('bot1')} disabled={isAnyLoading} className={`w-full px-4 py-4 bg-white hover:bg-slate-50 flex flex-col items-start gap-1 transition-colors ${selectedBots.includes('bot1') ? 'bg-green-100 ring-2 ring-inset ring-green-500' : ''}`}>
