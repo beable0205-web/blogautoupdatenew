@@ -11,8 +11,11 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
-import datetime
+# 윈도우 콘솔 환경에서 이모지 및 다국어 출력 시 발생하는 cp949 인코딩 에러 방지
+if sys.stdout.encoding.lower() != 'utf-8':
+    sys.stdout.reconfigure(encoding='utf-8')
 
+import datetime
 load_dotenv(dotenv_path=".env.local")
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
@@ -231,9 +234,10 @@ def generate_blog_post(title, summary, link, persona):
     1. 직접 경험과 구체성: 뻔한 일반론은 나열하지 말되, 제공되지 않은 직접 경험(예: 내가 어제 써봤는데 등)을 가짜로 꾸며 쓰지 마십시오. 경험이 없으면 솔직하고 전문적인 일반 가이드 어조로 서술합니다.
     2. 주제 일관성: 글 전체가 하나의 핵심 질문에 대답하도록 구성하고, 검색 노출만을 노린 뜬금없는 키워드 삽입은 전면 차단하십시오.
     3. 진정성과 신뢰성: 확인되지 않은 뇌피셜 정보는 단정하지 마십시오. 과장이나 낚시성 표현을 피합니다.
-    4. AI 인용 친화성 (AI-Citation Ready):
-       - 생성형 AI가 검색 요약이나 브리핑에 한눈에 발췌해 갈 수 있도록, 각 단락과 소제목 바로 아래 첫 문장은 **그 단락의 핵심 의미를 가장 명료하게 요약한 완성형 문장**이어야 합니다.
-       - 문장 하나만 떼어 읽어도 주어와 목적어가 확실하여 온전히 의미가 통하도록 중언부언하지 않고 콤팩트하게 작성하십시오.
+    4. AI 인용 극대화 (Naver Mate Fellowship & Google SGE AIO 최적화):
+       - 6월 4일 시작되는 네이버의 공식 Fellowship "네이버 메이트"의 핵심 선정 기준인 "AI 브리핑 인용수"를 극대화할 수 있도록 문맥 중심의 '잘 정리된 정보'를 구축하십시오.
+       - 각 단락과 소제목 바로 아래 첫 문장은 생성형 AI가 한눈에 발췌해 갈 수 있도록 주어와 목적어가 뚜렷한 완성형 핵심 문장으로 작성하십시오.
+       - **[치명적 필수] 질문 ➡️ 해결의 흐름 (Q&A 구조)**: 본문 소제목 3~6개 중 가장 검색 유입 의도가 높고 핵심 정보가 들어있는 **소제목 1~2개 바로 하단**에 독자가 던질 법한 구체적 질문(`Q.`)과 명쾌한 인용용 답변(`A.`) 세트를 세련된 네온 인라인 스타일로 자동 결합 배치하십시오. (예시: `<p style='font-weight: bold; color: #0066ff; font-size: 16px; margin-bottom: 8px;'>Q. 구체적인 질문 의도?</p>`, `<p style='margin-bottom: 35px; line-height: 1.8; color: #333;'>A. AI 브리핑 엔진이 인용하여 요약하기에 최적화된 명료한 단독형 해결 문장.</p>`)
 
     [역할 및 페르소나 지침]
     {personaGuidance}
@@ -248,7 +252,7 @@ def generate_blog_post(title, summary, link, persona):
     4. **[필수] 본문 content의 HTML 구조 규격 (6단계 구조식)**:
        - **(1) 한눈에 보는 요약**: 본문 극초반에 배치. `<div style='border-left: 4px solid #00c73c; background-color: #f8fafc; padding: 15px; margin-bottom: 35px; border-radius: 4px;'>...</div>` 스타일의 박스를 사용하여 2~4문장으로 핵심 요약을 정돈해 넣으십시오.
        - **(2) 도입**: 이 글을 독자가 왜 읽어야 하는지, 어떤 고질적인 문제를 해결해 주는지 1인칭 독백체로 흡입력 있게 전개하십시오.
-       - **(3) 본문**: 소제목 3~6개로 구분. 각 소제목은 `<h2>` 혹은 `<h3>`에 고품질 언더라인/테두리 인라인 스타일을 주어 작성하고, **소제목 바로 첫 문장은 AI 발췌에 최적화된 명료한 핵심 요약 단독 문장**을 배치한 뒤, 그 아래에 독백체 세부 설명과 팁을 기재하십시오.
+       - **(3) 본문**: 소제목 3~6개로 구분. 각 소제목은 `<h2>` 혹은 `<h3>`에 고품질 언더라인/테두리 인라인 스타일을 주어 작성하고, **소제목 바로 첫 문장은 AI 발췌에 최적화된 명료한 핵심 요약 단독 문장**을 배치한 뒤(일부 소제목에는 필수 지침에 따른 Q&A 세트 결합), 그 아래에 독백체 세부 설명과 팁을 기재하십시오.
        - **(4) 마무리**: 핵심 요약 및 독자가 실생활에 바로 대입해 활용할 실전 액션 포인트를 정돈하여 기재하십시오.
        - **(5) 추가 항목 (셀프 체크포인트 또는 고지)**: 필요 시 자가 진단 리스트나 고지 사항을 `<table>` 태그 등을 사용해 깔끔하고 세련된 박스 형태로 주입하십시오.
        - **(6) 면책 고지 및 팩트체크**: 결론 맨 하단에 완전히 무작위화된 형태의 `<p style='font-size: 13px; color: #888; text-align: center; line-height: 1.6;'><b>🚨 [팩트체크 및 면책고지]</b><br>...</p>`를 생성하십시오.
@@ -269,7 +273,7 @@ def generate_blog_post(title, summary, link, persona):
         "thumbnailBottom": "하단어그로문구"
       }},
       "title": "클릭하고 싶은 블로그 제목 한 줄 (후킹 극대화 및 검색 타겟 키워드 좌측 배치)",
-      "content": "HTML로 완벽하게 다듬어진 블로그 본문 (한눈에 보는 요약, 도입, 소제목 3~6개 본문, 마무리, 필요시 추가사항, [THUMBNAIL] 및 [IMAGE_1] 예약어 포함)"
+      "content": "HTML로 완벽하게 다듬어진 블로그 본문 (한눈에 보는 요약, 도입, 소제목 3~6개 본문(Q&A 구조 포함), 마무리, 필요시 추가사항, [THUMBNAIL] 및 [IMAGE_1] 예약어 포함)"
     }}
     """
 
@@ -585,14 +589,12 @@ def process_trends_csv():
     
     print(f"\n⚡ 실시간 황금 트렌드 포스팅 시작: {clean_keyword} (카테고리: {category})")
     
-    # 카테고리에 맞춰 페르소나 매핑
+    # 개편된 10대 비즈니스/경제 카테고리에 맞춰 페르소나 매핑
     persona = 'economy'
-    if category in ['보조금/지원금/복지', '연금/시니어']:
+    if category in ['보조금/정부지원금', '소비/가성비 쇼핑 테크']:
         persona = 'health'
-    elif category in ['예적금/특판', '부동산/청약', '세금/절세', '주식/비트코인 한탕주의']:
-        persona = 'economy'
     else:
-        persona = 'health'
+        persona = 'economy'
 
     # 구글 실시간 검색 팩트체크를 유도하며 글 작성
     result_text = generate_blog_post(clean_keyword, f"주제: {clean_keyword}에 관하여 최신 실시간 이슈와 핵심 팩트 정보를 분석하여 작성하세요. 구글 검색을 적극 활용해야 합니다.", "https://search.naver.com", persona)

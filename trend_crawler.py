@@ -261,19 +261,17 @@ def extract_golden_keywords_with_gemini(daum_headlines, nate_stories, strategy):
     (예시: 2026 숨은 정부지원금 확인하기 | 보조금/지원금/복지)
     
     [🚨 카테고리명 필수 조건 🚨]
-    카테고리명은 반드시 아래의 12가지 중 하나여야만 합니다. 절대 새로운 카테고리를 임의로 만들지 마세요.
-    1. 정치 우파 관점
-    2. 정치 좌파 관점
-    3. 보조금/지원금/복지
-    4. 예적금/특판
-    5. 연금/시니어
-    6. 부동산/청약
-    7. 세금/절세
-    8. 도파민/이슈
-    9. 네이트판 인기 스토리
-    10. 드라마/연예인 가십
-    11. 화제의 인물/정치인 가십
-    12. 주식/비트코인 한탕주의
+    카테고리명은 반드시 아래의 10가지 중 하나여야만 합니다. 절대 새로운 카테고리를 임의로 만들지 마세요.
+    1. 재테크/머니파이프라인
+    2. 보조금/정부지원금
+    3. 부동산/청약 대출
+    4. 예적금/특판 재무설계
+    5. 세금/연금/절세 꿀팁
+    6. 주식/글로벌 경제이슈
+    7. 비트코인/가상자산 동향
+    8. 창업/정부 정책자금
+    9. 소비/가성비 쇼핑 테크
+    10. 트렌드 코리아/비즈니스 이슈
     
     [실시간 소스 데이터]
     """
@@ -362,10 +360,24 @@ def run_crawler():
         candidates = [item['title'] for item in refined_keywords]
         volumes = get_naver_search_volumes(candidates)
         
-        # 필터링 로직: 1000 ~ 50000 구간의 키워드만 선별
-        # 단, 검색량 조회가 아예 실패했거나(-1) 매칭이 안 된 경우도 트렌드 유지를 위해 통과시킵니다.
+        # [신규 추가] 가장 파급력이 높은 단 하나의 카테고리 동적 엄선
+        category_scores = {}
+        for item in refined_keywords:
+            cat = item.get('category', '재테크/머니파이프라인')
+            vol = volumes.get(item['title'], 0)
+            if vol == -1 or vol is None: 
+                vol = 500  # 검색량 조회 불가 시 기본 가중치 부여
+            category_scores[cat] = category_scores.get(cat, 0) + vol
+
+        chosen_category = max(category_scores, key=category_scores.get) if category_scores else '재테크/머니파이프라인'
+        print(f"🎯 [단일 카테고리 엄선] 이번 주기의 최정예 카테고리로 '{chosen_category}'를 동적 선별 완료했습니다.")
+
+        # 필터링 로직: 엄선된 카테고리에 한해 1000 ~ 50000 구간의 키워드 선별
         filtered_keywords = []
         for item in refined_keywords:
+            if item.get('category') != chosen_category:
+                continue  # 엄선된 카테고리가 아니면 비용 절감을 위해 전면 스킵
+                
             k = item['title']
             v = volumes.get(k, -1)
             if NAVER_AD_CUSTOMER_ID and NAVER_AD_ACCESS_LICENSE and NAVER_AD_SECRET_KEY:
@@ -379,8 +391,8 @@ def run_crawler():
                 # API 키가 없으면 필터링 없이 통과
                 filtered_keywords.append(item)
                 
-        # 필터링 후 최대 10개만 저장
-        filtered_keywords = filtered_keywords[:10]
+        # 최종적으로 상위 5개의 핵심 키워드만 선별하여 저장 (요금 다이어트 극대화)
+        filtered_keywords = filtered_keywords[:5]
         
         # [신규 추가] 가장 핫한 최상위 1위 키워드를 기반으로 실시간 네이버 블로그 검색 상위 노출 스타일 자가 학습 가동
         if filtered_keywords:
