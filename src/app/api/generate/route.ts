@@ -5,101 +5,6 @@ const ai = new GoogleGenAI({});
 
 export const maxDuration = 300; // Vercel Pro 서버리스 함수 타임아웃 300초로 연장
 
-// HTML 마크업 코드 유사도 필터 회피용 Shuffler 구현
-function randomizeHtmlStyles(html: string): string {
-  // 1. p 태그 인라인 스타일 랜덤화
-  const getRandomPStyle = () => {
-    const fontSizes = ['15px', '16px', '17px'];
-    const lineHeights = ['1.65', '1.7', '1.75', '1.8', '1.85', '1.9'];
-    const margins = ['20px', '22px', '24px', '26px', '28px', '30px'];
-    const colors = ['#333333', '#222222', '#444444', '#1e293b', '#0f172a'];
-    const letterSpacings = ['-0.3px', '-0.5px', '-0.4px', 'normal'];
-
-    const size = fontSizes[Math.floor(Math.random() * fontSizes.length)];
-    const height = lineHeights[Math.floor(Math.random() * lineHeights.length)];
-    const margin = margins[Math.floor(Math.random() * margins.length)];
-    const color = colors[Math.floor(Math.random() * colors.length)];
-    const ls = letterSpacings[Math.floor(Math.random() * letterSpacings.length)];
-
-    const props = [
-      `font-size: ${size}`,
-      `line-height: ${height}`,
-      `margin-bottom: ${margin}`,
-      `color: ${color}`,
-      `letter-spacing: ${ls}`
-    ];
-    
-    // CSS 속성 선언 순서 무작위 셔플링
-    props.sort(() => Math.random() - 0.5);
-    return `style='${props.join('; ')};'`;
-  };
-
-  // 2. h2 태그 인라인 스타일 랜덤화
-  const getRandomH2Style = () => {
-    const fontSizes = ['22px', '23px', '24px', '25px'];
-    const weights = ['700', '800', '900'];
-    const colors = ['#111111', '#0f172a', '#1e293b', '#2d3748'];
-    const borderColors = ['#111111', '#00c73c', '#0066ff', '#ff9900', '#DB2777', '#8B5CF6', '#10B981'];
-    
-    const size = fontSizes[Math.floor(Math.random() * fontSizes.length)];
-    const weight = weights[Math.floor(Math.random() * weights.length)];
-    const color = colors[Math.floor(Math.random() * colors.length)];
-    const borderC = borderColors[Math.floor(Math.random() * borderColors.length)];
-
-    const props = [
-      `font-size: ${size}`,
-      `font-weight: ${weight}`,
-      `color: ${color}`,
-      `margin-top: ${50 + Math.floor(Math.random() * 25)}px`,
-      `margin-bottom: ${20 + Math.floor(Math.random() * 10)}px`,
-      `padding-bottom: 10px`,
-      `border-bottom: 2px solid ${borderC}`
-    ];
-    
-    props.sort(() => Math.random() - 0.5);
-    return `style='${props.join('; ')};'`;
-  };
-
-  // 3. h3 태그 인라인 스타일 랜덤화
-  const getRandomH3Style = () => {
-    const fontSizes = ['18px', '19px', '20px', '21px'];
-    const weights = ['700', '800'];
-    const colors = ['#333333', '#1e293b', '#2d3748', '#4a5568'];
-    const borderColors = ['#00c73c', '#0066ff', '#ff9900', '#DB2777', '#8B5CF6', '#10B981'];
-    
-    const size = fontSizes[Math.floor(Math.random() * fontSizes.length)];
-    const weight = weights[Math.floor(Math.random() * weights.length)];
-    const color = colors[Math.floor(Math.random() * colors.length)];
-    const borderC = borderColors[Math.floor(Math.random() * borderColors.length)];
-
-    const props = [
-      `font-size: ${size}`,
-      `font-weight: ${weight}`,
-      `color: ${color}`,
-      `margin-top: ${40 + Math.floor(Math.random() * 25)}px`,
-      `margin-bottom: ${15 + Math.floor(Math.random() * 10)}px`,
-      `padding-left: 14px`,
-      `border-left: 4px solid ${borderC}`
-    ];
-    
-    props.sort(() => Math.random() - 0.5);
-    return `style='${props.join('; ')};'`;
-  };
-
-  let processed = html;
-
-  // 인라인 스타일 패턴 매칭 및 교체
-  processed = processed.replace(/<p\s+style=['"][^'"]*['"]>/gi, () => `<p ${getRandomPStyle()}>`);
-  processed = processed.replace(/<h2\s+style=['"][^'"]*['"]>/gi, () => `<h2 ${getRandomH2Style()}>`);
-  processed = processed.replace(/<h3\s+style=['"][^'"]*['"]>/gi, () => `<h3 ${getRandomH3Style()}>`);
-
-  // 단락의 끝마다 고유한 무작위 주석을 인젝션하여 유사문서 지문 우회
-  processed = processed.replace(/<\/p>/gi, () => {
-    const randomHash = Math.random().toString(36).substring(2, 8);
-    return `<!-- hash_${randomHash} --></p>`;
-  });
-
-  return processed;
 }
 
 export async function POST(req: Request) {
@@ -552,22 +457,8 @@ ${deviceType === 'mobile' ? "(생성된 블로그 본문을 <p>, <br>, <b> 태�
             }
           }
 
-          // HTML 마크업 코드 인라인 스타일 셔플링 수행
+          // 무작위 인라인 스타일 셔플러를 제거하여 네이버 스마트에디터 ONE의 신뢰성 검증 통과 (Clean HTML 유지)
           let processedText = fullText;
-          const contentMatch = fullText.match(/([\s\S]*?)\[CONTENT\]([\s\S]*?)\[\/CONTENT\]/i);
-          
-          if (contentMatch) {
-            const beforeContent = contentMatch[1];
-            const contentBody = contentMatch[2];
-            const randomizedBody = randomizeHtmlStyles(contentBody);
-            processedText = `${beforeContent}[CONTENT]\n${randomizedBody}\n[/CONTENT]`;
-          } else if (fullText.includes('[CONTENT]')) {
-            const parts = fullText.split(/\[CONTENT\]/i);
-            const beforeContent = parts[0];
-            const contentBody = parts[1];
-            const randomizedBody = randomizeHtmlStyles(contentBody);
-            processedText = `${beforeContent}[CONTENT]\n${randomizedBody}`;
-          }
 
           // 자연스러운 스트리밍 타이핑 효과 시뮬레이션
           const chunkSize = 25;
