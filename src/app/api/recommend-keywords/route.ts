@@ -64,47 +64,67 @@ export async function POST(req: Request) {
         return parseInt(val) || 0;
     };
 
+    // 1. [초고단가 CPC 금융/비즈니스 단어 사전] - 애드포스트 클릭 단가가 수천~수만 원을 호가하는 마법의 키워드들
+    const HIGH_CPC_WORDS = [
+      '대출', '환급', '지원금', '청약', '금리', '세금', '연금', '부업', '창업', 
+      '비트코인', '가상자산', '절세', '건보료', '카드', '보험', '특판', '예금', 
+      '적금', '소상공인', '정부지원', '보조금', '수수료', '주식', '증권', '펀드', '수익'
+    ];
+
     const mappedKeywords = keywordList.map((k: any) => {
         const pc = parseCnt(k.monthlyPcQcCnt);
         const mobile = parseCnt(k.monthlyMobileQcCnt);
         const total = pc + mobile;
+        const kw = k.relKeyword || "";
+        
+        // 고단가 애드포스트 키워드 점수화 (포함될수록 수익 가중치 폭등)
+        let cpcScore = 0;
+        HIGH_CPC_WORDS.forEach(word => {
+          if (kw.includes(word)) cpcScore += 10000;
+        });
+
         return {
-            keyword: k.relKeyword,
+            keyword: kw,
             monthlyTotalCnt: total,
             pcCnt: pc,
             mobileCnt: mobile,
+            cpcScore: cpcScore
         };
     });
 
-    // [니치 트래픽 고도화] 진짜 '황금 틈새(롱테일) 키워드'만 강제 필터링
-    // 조건 1: 검색량은 200 ~ 15,000 사이 (초대형 인플루언서가 노리지 않는 빈집 타겟)
-    // 조건 2: 키워드 길이가 6글자 이상 (장외주식 -> X, 장외주식거래방법 -> O)
+    // 2. [황금 틈새(롱테일) 필터링] 
+    // - 조건 1: 검색량 200 ~ 20,000 (최상위 인플루언서와 무모한 경쟁을 피하는 빈집)
+    // - 조건 2: 4글자 이상 (구체적 검색 의도가 반영된 롱테일)
     const strictNicheKeywords = mappedKeywords.filter((k: any) => {
-      const isNicheTraffic = k.monthlyTotalCnt >= 200 && k.monthlyTotalCnt <= 15000;
-      const isLongTail = k.keyword.length >= 6; // 구체적이고 긴 단어 조합만 살아남음
+      const isNicheTraffic = k.monthlyTotalCnt >= 200 && k.monthlyTotalCnt <= 20000;
+      const isLongTail = k.keyword.length >= 4;
       return isNicheTraffic && isLongTail;
     });
 
-    // 1순위: 진짜 롱테일 + 빈집 키워드
     let targetArray = strictNicheKeywords;
 
-    // 만약 너무 엄격해서 12개가 안 나오면, 검색량 조건만 유지하고 길이는 4글자 이상으로 완화
     if (targetArray.length < 12) {
        targetArray = mappedKeywords.filter((k: any) => 
-         k.monthlyTotalCnt >= 200 && k.monthlyTotalCnt <= 30000 && k.keyword.length >= 4
+         k.monthlyTotalCnt >= 150 && k.monthlyTotalCnt <= 35000 && k.keyword.length >= 3
        );
     }
 
-    // 그래도 안 나오면 전체 풀 사용
     if (targetArray.length < 12) {
        targetArray = mappedKeywords;
     }
 
-    // [랜덤성 부여] 조회할 때마다 새로운 키워드가 나타나도록 무작위 셔플 후 상위 12개 추출
-    const shuffled = targetArray.sort(() => 0.5 - Math.random());
+    // 3. [초고수익 정렬 알고리즘]
+    // - 애드포스트 단가가 높은 키워드(cpcScore가 높은 것)를 무조건 상단 1순위로 배치
+    // - 동점(cpcScore가 같음)일 경우 랜덤성을 주어 매번 다양한 노다지 키워드가 보이도록 셔플
+    const sortedByCpcAndShuffled = targetArray.sort((a: any, b: any) => {
+      if (b.cpcScore !== a.cpcScore) {
+        return b.cpcScore - a.cpcScore; // 고단가 우선 정렬
+      }
+      return 0.5 - Math.random(); // 동점자는 무작위 셔플
+    });
 
-    // Return top 12 keywords
-    return NextResponse.json({ recommendations: shuffled.slice(0, 12) });
+    // Return top 12 high-CPC golden niche keywords
+    return NextResponse.json({ recommendations: sortedByCpcAndShuffled.slice(0, 12) });
   } catch (error: any) {
     console.error("Recommend Keywords API Error:", error);
     return NextResponse.json(
