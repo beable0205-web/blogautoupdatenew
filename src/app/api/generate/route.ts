@@ -82,7 +82,7 @@ export async function POST(req: Request) {
     사용자 검색어: ${keyword}`;
 
     let transRes;
-    const transModels = ["gemini-3.5-flash", "gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
+    const transModels = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-1.5-flash"];
     let transAttempt = 0;
 
     while (transAttempt < transModels.length) {
@@ -363,10 +363,9 @@ ${deviceType === 'mobile' ? "(생성된 블로그 본문을 <p>, <br>, <b> 태�
 
     let streamRes: any;
     const generateModels = [
-      "gemini-3.5-flash", 
-      "gemini-2.5-pro",
       "gemini-2.5-flash", 
-      "gemini-2.5-flash-lite"
+      "gemini-2.5-flash-lite",
+      "gemini-1.5-flash"
     ];
     let genAttempt = 0;
 
