@@ -287,44 +287,127 @@ def generate_blog_post(title, summary, link, persona):
     try:
         res_data = None
         last_err = None
-        
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {DEEPSEEK_API_KEY}"
-        }
-        payload = {
-            "model": "deepseek-chat",
-            "messages": [
-                {"role": "system", "content": "당신은 최고 품질의 블로그 원고를 생산하는 보조 AI입니다. 반드시 JSON 형식으로만 최종 응답해야 합니다."},
-                {"role": "user", "content": prompt}
-            ],
-            "response_format": {
-                "type": "json_object"
-            },
-            "temperature": 0.3
-        }
 
-        # DeepSeek API 호출 (시도 3회)
-        for attempt in range(1, 4):
+        GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+        use_gemini = (persona in ['health', 'economy']) and GEMINI_API_KEY
+
+        if use_gemini:
+            print(f"[{title}] 실시간 구글 검색(Grounding) 연동을 위해 Gemini API(gemini-2.5-flash)를 사용하여 본문을 작성합니다.")
             try:
-                response = requests.post(
-                    "https://api.deepseek.com/v1/chat/completions",
-                    headers=headers,
-                    json=payload,
-                    timeout=90
-                )
-                if response.status_code == 200:
-                    res_data = response.json()
-                    break
-                elif response.status_code in [429, 503]:
-                    print(f"⚠️ DeepSeek API {response.status_code} 에러 감지 (시도 {attempt}/3). 15초 대기합니다...")
-                    time.sleep(15)
-                else:
-                    raise Exception(f"API Error status code: {response.status_code}, Response: {response.text}")
-            except Exception as e:
-                print(f"⚠️ DeepSeek API 호출 시도 {attempt}/3 실패: {e}")
-                last_err = e
-                time.sleep(5)
+                from google import genai
+                from google.genai import types
+                
+                gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+                
+                for attempt in range(1, 4):
+                    try:
+                        config = types.GenerateContentConfig(
+                            system_instruction="당신은 최고 품질의 블로그 원고를 생산하고 팩트를 체크하는 보조 AI입니다. 반드시 구글 검색 결과를 적극 참고해 거짓 없는 최신 정보를 담으십시오. 반드시 JSON 형식으로만 최종 응답해야 합니다.",
+                            response_mime_type="application/json",
+                            tools=[types.Tool(google_search=types.GoogleSearch())],
+                            temperature=0.3
+                        )
+                        res = gemini_client.models.generate_content(
+                            model='gemini-2.5-flash',
+                            contents=prompt,
+                            config=config
+                        )
+                        # JSON 파싱 검증
+                        json_str = res.text.strip()
+                        if json_str.startswith("```json"):
+                            json_str = json_str[7:]
+                        if json_str.endswith("```"):
+                            json_str = json_str[:-3]
+                        json.loads(json_str.strip())
+                        
+                        res_data = {
+                            'choices': [{
+                                'message': {
+                                    'content': res.text.strip()
+                                }
+                            }]
+                        }
+                        break
+                    except Exception as e:
+                        print(f"⚠️ Gemini API 호출 시도 {attempt}/3 실패: {e}")
+                        last_err = e
+                        if attempt == 2:
+                            print("⚠️ Gemini 툴 호출 실패로 일반 시도합니다.")
+                            try:
+                                config = types.GenerateContentConfig(
+                                    system_instruction="당신은 최고 품질의 블로그 원고를 생산하는 보조 AI입니다. 반드시 JSON 형식으로만 최종 응답해야 합니다.",
+                                    response_mime_type="application/json",
+                                    temperature=0.3
+                                )
+                                res = gemini_client.models.generate_content(
+                                    model='gemini-2.5-flash',
+                                    contents=prompt,
+                                    config=config
+                                )
+                                json_str = res.text.strip()
+                                if json_str.startswith("```json"):
+                                    json_str = json_str[7:]
+                                if json_str.endswith("```"):
+                                    json_str = json_str[:-3]
+                                json.loads(json_str.strip())
+                                res_data = {
+                                    'choices': [{
+                                        'message': {
+                                            'content': res.text.strip()
+                                        }
+                                    }]
+                                }
+                                break
+                            except Exception as inner_err:
+                                print(f"⚠️ Gemini 일반 호출 실패: {inner_err}")
+                                last_err = inner_err
+                        time.sleep(5)
+            except Exception as import_err:
+                print(f"⚠️ Gemini SDK 초기화 실패: {import_err}")
+                last_err = import_err
+
+        # Gemini 미지원이거나 호출 실패 시 DeepSeek-V3로 폴백
+        if not res_data:
+            if use_gemini:
+                print("⚠️ Gemini 호출 실패로 DeepSeek-V3 API로 폴백합니다.")
+            print(f"[{title}] DeepSeek-V3 API를 사용하여 본문을 작성합니다.")
+            
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {DEEPSEEK_API_KEY}"
+            }
+            payload = {
+                "model": "deepseek-chat",
+                "messages": [
+                    {"role": "system", "content": "당신은 최고 품질의 블로그 원고를 생산하는 보조 AI입니다. 반드시 JSON 형식으로만 최종 응답해야 합니다."},
+                    {"role": "user", "content": prompt}
+                ],
+                "response_format": {
+                    "type": "json_object"
+                },
+                "temperature": 0.3
+            }
+
+            for attempt in range(1, 4):
+                try:
+                    response = requests.post(
+                        "https://api.deepseek.com/v1/chat/completions",
+                        headers=headers,
+                        json=payload,
+                        timeout=90
+                    )
+                    if response.status_code == 200:
+                        res_data = response.json()
+                        break
+                    elif response.status_code in [429, 503]:
+                        print(f"⚠️ DeepSeek API {response.status_code} 에러 감지 (시도 {attempt}/3). 15초 대기합니다...")
+                        time.sleep(15)
+                    else:
+                        raise Exception(f"API Error status code: {response.status_code}, Response: {response.text}")
+                except Exception as e:
+                    print(f"⚠️ DeepSeek API 호출 시도 {attempt}/3 실패: {e}")
+                    last_err = e
+                    time.sleep(5)
 
         if not res_data:
             raise last_err if last_err else Exception("통합 원고 생성 최종 실패")

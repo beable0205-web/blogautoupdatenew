@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-
+import { GoogleGenAI } from "@google/genai";
 
 export const maxDuration = 300; // Vercel Pro 서버리스 함수 타임아웃 300초로 연장
 
@@ -361,33 +361,59 @@ ${deviceType === 'mobile' ? "(생성된 블로그 본문을 <p>, <br>, <b> 태�
 
     const systemInstruction = "당신은 블로그 포스팅 작가를 돕는 보조 AI입니다. 절대로 검색 결과의 원본 데이터(JSON이나 파이썬 딕셔너리 구조, {'title': ...})를 사용자에게 그대로 노출하거나 본문에 출력하지 마세요. 오직 깔끔하게 다듬어진 블로그 [CONTENT] 텍스트만 출력해야 합니다.";
 
-    let deepseekStreamResponse: Response;
-    try {
-      deepseekStreamResponse = await fetch("https://api.deepseek.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${deepseekApiKey}`
-        },
-        body: JSON.stringify({
-          model: "deepseek-chat",
-          messages: [
-            { role: "system", content: systemInstruction },
-            { role: "user", content: prompt }
-          ],
-          temperature: 0.7,
-          max_tokens: 8192,
-          stream: true
-        })
-      });
+    let fullText = "";
+    let deepseekStreamResponse: Response | null = null;
 
-      if (!deepseekStreamResponse.ok) {
-        const errText = await deepseekStreamResponse.text();
-        throw new Error(`DeepSeek stream API failed: ${deepseekStreamResponse.status} ${errText}`);
+    const geminiApiKey = process.env.GEMINI_API_KEY;
+    const useGemini = ['bot2', 'bot3', 'bot4', 'bot5', 'bot6', 'bot7', 'bot8'].includes(category) && !!geminiApiKey;
+
+    if (useGemini) {
+      console.log(`[Generate] Using Gemini API (gemini-2.5-flash) with Google Search grounding for category: ${category}`);
+      try {
+        const ai = new GoogleGenAI({ apiKey: geminiApiKey });
+        const response = await ai.models.generateContent({
+          model: "gemini-2.5-flash",
+          contents: prompt,
+          config: {
+            systemInstruction: systemInstruction + " 반드시 구글 검색 결과를 적극 참고해 거짓 없는 최신 정보를 담으십시오.",
+            tools: [{ googleSearch: {} }],
+            temperature: 0.3
+          }
+        });
+        fullText = response.text || "";
+      } catch (err) {
+        console.error("Gemini grounding call failed, falling back to DeepSeek:", err);
       }
-    } catch (err) {
-      console.error("DeepSeek generate stream error:", err);
-      throw err;
+    }
+
+    if (!fullText) {
+      try {
+        deepseekStreamResponse = await fetch("https://api.deepseek.com/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${deepseekApiKey}`
+          },
+          body: JSON.stringify({
+            model: "deepseek-chat",
+            messages: [
+              { role: "system", content: systemInstruction },
+              { role: "user", content: prompt }
+            ],
+            temperature: 0.7,
+            max_tokens: 8192,
+            stream: true
+          })
+        });
+
+        if (!deepseekStreamResponse.ok) {
+          const errText = await deepseekStreamResponse.text();
+          throw new Error(`DeepSeek stream API failed: ${deepseekStreamResponse.status} ${errText}`);
+        }
+      } catch (err) {
+        console.error("DeepSeek generate stream error:", err);
+        throw err;
+      }
     }
 
     const host = req.headers.get('host') || 'localhost:3000';
@@ -423,39 +449,40 @@ ${deviceType === 'mobile' ? "(생성된 블로그 본문을 <p>, <br>, <b> 태�
           controller.enqueue(encoder.encode(`data: ${metaMsg}\n\n`));
 
           // 3. 실시간으로 청크 스트림을 수집하여 포스트 프로세싱
-          let fullText = "";
-          const reader = deepseekStreamResponse.body?.getReader();
-          const decoder = new TextDecoder("utf-8");
-          let buffer = "";
+          let finalFullText = fullText;
+          if (!finalFullText && deepseekStreamResponse) {
+            const reader = deepseekStreamResponse.body?.getReader();
+            const decoder = new TextDecoder("utf-8");
+            let buffer = "";
 
-          if (reader) {
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              
-              buffer += decoder.decode(value, { stream: true });
-              const lines = buffer.split("\n");
-              buffer = lines.pop() || ""; // 마지막 미완성 라인은 버퍼에 남겨둠
+            if (reader) {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split("\n");
+                buffer = lines.pop() || ""; // 마지막 미완성 라인은 버퍼에 남겨둠
 
-              for (const line of lines) {
-                const cleanedLine = line.trim();
-                if (cleanedLine.startsWith("data:")) {
-                  const dataContent = cleanedLine.substring(5).trim();
-                  if (dataContent === "[DONE]") break;
-                  try {
-                    const parsed = JSON.parse(dataContent);
-                    const delta = parsed.choices[0]?.delta?.content || "";
-                    fullText += delta;
-                  } catch (e) {
-                    // JSON 파싱 실패 무시
+                for (const line of lines) {
+                  const cleanedLine = line.trim();
+                  if (cleanedLine.startsWith("data:")) {
+                    const dataContent = cleanedLine.substring(5).trim();
+                    if (dataContent === "[DONE]") break;
+                    try {
+                      const parsed = JSON.parse(dataContent);
+                      const delta = parsed.choices[0]?.delta?.content || "";
+                      finalFullText += delta;
+                    } catch (e) {
+                      // JSON 파싱 실패 무시
+                    }
                   }
                 }
               }
             }
           }
 
-          // 무작위 인라인 스타일 셔플러를 제거하여 네이버 스마트에디터 ONE의 신뢰성 검증 통과 (Clean HTML 유지)
-          let processedText = fullText;
+          let processedText = finalFullText;
 
           // 자연스러운 스트리밍 타이핑 효과 시뮬레이션
           const chunkSize = 25;
