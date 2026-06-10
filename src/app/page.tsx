@@ -154,6 +154,7 @@ export default function Home() {
                        } else if (aiText.includes('[TITLE]')) {
                            currentTitle = aiText.split(/\[TITLE\]/i)[1].trim(); 
                        }
+                       currentTitle = currentTitle.replace(/<[^>]*>/g, '');
 
                        let currentContent = aiText;
                        if (aiText.includes('[CONTENT]')) {
@@ -211,7 +212,8 @@ export default function Home() {
           }
       }
       
-      const finalTitle = aiText.match(/\[TITLE\]([\s\S]*?)\[\/TITLE\]/i)?.[1]?.trim() || "제목 완성";
+      const rawTitle = aiText.match(/\[TITLE\]([\s\S]*?)\[\/TITLE\]/i)?.[1]?.trim() || "제목 완성";
+      const finalTitle = rawTitle.replace(/<[^>]*>/g, '');
       setResult({ title: finalTitle, content: finalContent });
 
     } catch (error: unknown) {
