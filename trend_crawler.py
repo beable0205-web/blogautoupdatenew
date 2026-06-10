@@ -5,8 +5,6 @@ import requests
 from bs4 import BeautifulSoup
 import schedule
 import pandas as pd
-from google import genai
-from google.genai import types
 from dotenv import load_dotenv
 from datetime import datetime
 import subprocess
@@ -24,52 +22,49 @@ if sys.stdout.encoding.lower() != 'utf-8':
 # .env.local 파일에서 환경변수 로드 (로컬 환경인 경우)
 if not os.getenv('GITHUB_ACTIONS_ENV'):
     load_dotenv('.env.local')
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY')
 
-if not GEMINI_API_KEY:
-    print("오류: GEMINI_API_KEY가 없습니다. (.env.local 또는 깃허브 시크릿을 확인하세요)")
+if not DEEPSEEK_API_KEY or "your_deepseek_api_key" in DEEPSEEK_API_KEY:
+    print("오류: DEEPSEEK_API_KEY가 없습니다. (.env.local 또는 깃허브 시크릿을 확인하세요)")
     exit(1)
 
-client = genai.Client(api_key=GEMINI_API_KEY)
-
 # 최신 모델 Fallback 연동 헬퍼 함수 정의 (초저비용 모드 및 429 쿨다운 필터 장착)
-def generate_with_fallback(prompt, config=None, system_instruction=None):
-    use_low_cost = os.environ.get("USE_LOW_COST_MODEL", "False").strip().lower() == "true"
-    if use_low_cost:
-        print("💡 [초저비용 모드 활성화] 전략/키워드 생성에 gemini-2.5-flash 단일 모델을 사용하여 비용을 절감합니다.")
-        models_to_try = ['gemini-2.5-flash']
-    else:
-        models_to_try = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3.5-flash']
-        
+def generate_with_fallback(prompt, temperature=0.7):
+    """DeepSeek API 호출 및 429/503 에러 쿨다운 필터 장착 (시도 3회)"""
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}"
+    }
+    payload = {
+        "model": "deepseek-chat",
+        "messages": [
+            {"role": "system", "content": "당신은 실시간 트렌드 분석 및 블로그 키워드 마스터입니다."},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": temperature
+    }
+    
     last_err = None
-    for model_name in models_to_try:
-        # 모델별 최대 2회 시도
-        for attempt in range(1, 3):
-            try:
-                actual_config = config
-                if system_instruction:
-                    if not actual_config:
-                        actual_config = types.GenerateContentConfig(system_instruction=system_instruction)
-                    else:
-                        if isinstance(actual_config, dict):
-                            actual_config['system_instruction'] = system_instruction
-                            actual_config = types.GenerateContentConfig(**actual_config)
-                        elif isinstance(actual_config, types.GenerateContentConfig):
-                            actual_config.system_instruction = system_instruction
-                
-                res = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                    config=actual_config
-                )
-                return res
-            except Exception as e:
-                print(f"⚠️ {model_name} (시도 {attempt}/2) 호출 실패: {e}")
-                last_err = e
-                # Billing Block이나 429/Quota 초과 등이 감지되면 60초 강제 대기
-                if any(x in str(e).lower() for x in ["exceeded", "quota", "billing", "429", "blocked"]):
-                    print("🚨 [쿨다운 필터 가동] Rate limit / Billing 한도 도달 감지. 60초 강제 대기합니다...")
-                    time.sleep(60)
+    for attempt in range(1, 4):
+        try:
+            response = requests.post(
+                "https://api.deepseek.com/v1/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=90
+            )
+            if response.status_code == 200:
+                res_data = response.json()
+                return res_data['choices'][0]['message']['content'].strip()
+            elif response.status_code in [429, 503]:
+                print(f"⚠️ [trend_crawler] DeepSeek API {response.status_code} 에러 감지 (시도 {attempt}/3). 15초 대기합니다...")
+                time.sleep(15)
+            else:
+                raise Exception(f"API Error status code: {response.status_code}, Response: {response.text}")
+        except Exception as e:
+            print(f"⚠️ [trend_crawler] DeepSeek API 호출 시도 {attempt}/3 실패: {e}")
+            last_err = e
+            time.sleep(5)
     raise last_err
 
 # 네이버 검색광고 API 키 로드
@@ -221,14 +216,14 @@ def generate_daily_breakthrough_strategy(past_keywords):
     따라서 제안하는 3개의 전략 중 **최소 1~2개는 반드시 부동산/주거/대출 관련 숨겨진 틈새 시장(예: 지역별 폭락, 특정 대출 정책 등)**이어야 합니다.
     """
     try:
-        response = generate_with_fallback(prompt)
-        return response.text.strip()
+        response_text = generate_with_fallback(prompt, temperature=0.7)
+        return response_text
     except Exception as e:
         print(f"전략 수립 중 오류 발생: {e}")
         return "기본 9대 카테고리(정치, 복지, 예적금, 연금, 부동산, 세금, 이슈 등)를 유지합니다."
 
-# Gemini로 황금 키워드 추출 (동적 전략 반영)
-def extract_golden_keywords_with_gemini(daum_headlines, nate_stories, strategy):
+# DeepSeek로 황금 키워드 추출 (동적 전략 반영)
+def extract_golden_keywords_with_deepseek(daum_headlines, nate_stories, strategy):
     all_issues = []
     if daum_headlines:
         all_issues.append("[다음 뉴스 랭킹]")
@@ -243,7 +238,7 @@ def extract_golden_keywords_with_gemini(daum_headlines, nate_stories, strategy):
     prompt = f"""
     당신은 대한민국 상위 0.1% 조회수를 이끌어내는 블로그 트렌드 마스터입니다.
     아래는 현재 인터넷에서 가장 뜨거운 실시간 뉴스 및 커뮤니티 썰 목록입니다.
-    이 목록을 분석하여, 블로그 포스팅 시 '조회수 1만 뷰 이상'을 달성할 수 있는 "고부가가치 황금 키워드/후킹 제목"을 추출해 주셔야 합니다.
+    이 목록을 분석하여, 블로그 포스팅 시 '조회수 1만 뷰 이상'을 달성할 수 있는 \"고부가가치 황금 키워드/후킹 제목\"을 추출해 주셔야 합니다.
     
     [오늘의 맞춤형 돌파 전략 (AI 자가 반성 기반)]
     {strategy}
@@ -256,8 +251,8 @@ def extract_golden_keywords_with_gemini(daum_headlines, nate_stories, strategy):
     - 자극적인 제목을 만들더라도 100% 팩트를 기반으로 해야 하며, 독자를 기만하는 허위 사실을 생성하면 안 됩니다.
     
     [출력 형식]
-    돌파 전략에 맞춰 파급력이 클 것 같은 "정제된 키워드(또는 제목)" 후보군을 **넉넉하게 30개** 뽑아주세요.
-    반드시 다음과 같이 "정제된 키워드 | 카테고리명" 형식으로 한 줄씩 출력해주세요. 다른 부연 설명은 절대 적지 마세요.
+    돌파 전략에 맞춰 파급력이 클 것 같은 \"정제된 키워드(또는 제목)\" 후보군을 **넉넉하게 30개** 뽑아주세요.
+    반드시 다음과 같이 \"정제된 키워드 | 카테고리명\" 형식으로 한 줄씩 출력해주세요. 다른 부연 설명은 절대 적지 마세요.
     (예시: 2026 숨은 정부지원금 확인하기 | 보조금/지원금/복지)
     
     [🚨 카테고리명 필수 조건 🚨]
@@ -278,11 +273,10 @@ def extract_golden_keywords_with_gemini(daum_headlines, nate_stories, strategy):
     prompt += "\n".join(all_issues)
     
     try:
-        response = generate_with_fallback(prompt)
-        text = response.text.strip()
+        response_text = generate_with_fallback(prompt, temperature=0.7)
         
         results = []
-        for line in text.split('\n'):
+        for line in response_text.split('\n'):
             if '|' in line:
                 parts = line.split('|', 1)
                 title = parts[0].replace('- ', '').strip()
@@ -290,7 +284,7 @@ def extract_golden_keywords_with_gemini(daum_headlines, nate_stories, strategy):
                 results.append({'title': title, 'category': category})
         return results
     except Exception as e:
-        print(f"Gemini API 오류: {e}")
+        print(f"DeepSeek API 오류: {e}")
         return []
 
 def run_crawler():
@@ -348,9 +342,9 @@ def run_crawler():
         print(strategy)
         print("==============================================================\n")
         
-        print("Gemini API로 30개의 맞춤형 황금 키워드 후보 추출 중...")
+        print("DeepSeek API로 30개의 맞춤형 황금 키워드 후보 추출 중...")
         try:
-            refined_keywords = extract_golden_keywords_with_gemini(daum_headlines, nate_stories, strategy)
+            refined_keywords = extract_golden_keywords_with_deepseek(daum_headlines, nate_stories, strategy)
         except Exception as ke:
             print(f"⚠️ AI 황금 키워드 추출 실패 (API 한도 도달): {ke}")
             refined_keywords = []

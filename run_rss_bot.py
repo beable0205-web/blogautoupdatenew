@@ -144,14 +144,14 @@ def fetch_pixabay_images(primary, fallback, api_key):
             print(f"⚠️ Pixabay 이미지 검색 에러 ({query}): {e}")
         return []
 
-    found_images = fetch_images_by_query(primary, 4)
-    if len(found_images) < 4:
-        fallback_images = fetch_images_by_query(fallback, 4 - len(found_images))
+    found_images = fetch_images_by_query(primary, 1)
+    if len(found_images) < 1:
+        fallback_images = fetch_images_by_query(fallback, 1 - len(found_images))
         found_images.extend(fallback_images)
-    if len(found_images) < 4:
-        safe_images = fetch_images_by_query('nature', 4 - len(found_images))
+    if len(found_images) < 1:
+        safe_images = fetch_images_by_query('nature', 1 - len(found_images))
         found_images.extend(safe_images)
-    return found_images[:4]
+    return found_images[:1]
 
 def extract_text_from_html(html_content):
     soup = BeautifulSoup(html_content, 'html.parser')
@@ -251,7 +251,7 @@ def generate_blog_post(title, summary, link, persona):
          몸이 가볍게 움직일 때는<br>
          관절의 역할을 크게 느끼지 못합니다.<br>
          하지만 무릎이 시큰하거나...
-    3. 대표 이미지 표식용 `[THUMBNAIL]` 예약어는 도입 서론(본문 2~3단락) 직후 적절한 위치에 단 1번 배치하십시오. 본론 중간에는 `[IMAGE_1]`, `[IMAGE_2]`, `[IMAGE_3]` 예약어를 적절히 분배하십시오.
+    3. 대표 이미지 표식용 `[THUMBNAIL]` 예약어는 도입 서론(본문 2~3단락) 직후 적절한 위치에 단 1번 배치하십시오. 본문 중간에 보조 이미지 예약어(`[IMAGE_1]`, `[IMAGE_2]` 등)는 절대 사용하지 마십시오. 오직 썸네일 1개만 `[THUMBNAIL]` 예약어로 노출되어야 합니다.
     4. **기호 없는 순수 줄바꿈 리스트 체계:**
        - AI 특유의 글머리 기호(`*`, `-`, `•`, `1.`, `2.`)를 본문 내 리스트 작성 시 **절대 사용하지 마십시오.** 
        - 대신 깔끔하게 한 줄씩 줄바꿈하고 볼드 처리를 하는 순수 텍스트 리스트 형태를 사용하십시오.
@@ -413,12 +413,7 @@ def generate_blog_post(title, summary, link, persona):
             else:
                 randomized_body = thumbnail_html + "\n" + randomized_body
 
-        # [IMAGE_1], [IMAGE_2], [IMAGE_3] 예약어 치환
-        for idx, img_url in enumerate(image_urls[1:4], start=1):
-            img_tag = f"""<div style="text-align: center; margin-top: 24px; margin-bottom: 24px;">
-  <img src="{img_url}" alt="본문 이미지 {idx}" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);" />
-</div>"""
-            randomized_body = randomized_body.replace(f"[IMAGE_{idx}]", img_tag)
+
 
         # 기존 RSS 포스팅 저장 루틴과의 호환을 위한 출력 규격 복원
         full_result = f"[TITLE]\n{blog_title}\n[/TITLE]\n[CONTENT]\n{randomized_body}\n[/CONTENT]"

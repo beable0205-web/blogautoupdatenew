@@ -5,8 +5,6 @@ import json
 import urllib.parse
 import requests
 from bs4 import BeautifulSoup
-from google import genai
-from google.genai import types
 from dotenv import load_dotenv
 from datetime import datetime
 
@@ -17,44 +15,52 @@ if sys.stdout.encoding.lower() != 'utf-8':
 # 환경변수 로드
 if not os.getenv('GITHUB_ACTIONS_ENV'):
     load_dotenv('.env.local')
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY')
 
-if not GEMINI_API_KEY:
-    print("오류: GEMINI_API_KEY가 없습니다.")
+if not DEEPSEEK_API_KEY or "your_deepseek_api_key" in DEEPSEEK_API_KEY:
+    print("오류: DEEPSEEK_API_KEY가 없습니다.")
     sys.exit(1)
 
-client = genai.Client(api_key=GEMINI_API_KEY)
 KNOWLEDGE_FILE = 'naver_style_knowledge.json'
 
 import time
 
-def generate_with_fallback(prompt, config=None):
-    """Gemini 429 RESOURCE_EXHAUSTED 방지용 예비 모델 교차 우회 호출 헬퍼 (초저비용 모드 및 429 쿨다운 필터 장착)"""
-    use_low_cost = os.environ.get("USE_LOW_COST_MODEL", "False").strip().lower() == "true"
-    if use_low_cost:
-        print("💡 [naver_learner] [초저비용 모드 활성화] 블로그 스타일 분석에 gemini-2.5-flash 단일 모델을 사용하여 비용을 절감합니다.")
-        models_to_try = ['gemini-2.5-flash']
-    else:
-        models_to_try = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3.5-flash']
-        
+def generate_with_fallback(prompt, temperature=0.3):
+    """DeepSeek API 호출 및 429/503 에러 쿨다운 필터 장착 (시도 3회)"""
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}"
+    }
+    payload = {
+        "model": "deepseek-chat",
+        "messages": [
+            {"role": "system", "content": "당신은 네이버 블로그 SEO 및 상위 노출 분석 전문가입니다."},
+            {"role": "user", "content": prompt}
+        ],
+        "temperature": temperature
+    }
+    
     last_err = None
-    for model_name in models_to_try:
-        # 모델별 최대 2회 시도
-        for attempt in range(1, 3):
-            try:
-                res = client.models.generate_content(
-                    model=model_name,
-                    contents=prompt,
-                    config=config
-                )
-                return res
-            except Exception as e:
-                print(f"⚠️ [naver_learner] {model_name} (시도 {attempt}/2) 호출 실패: {e}")
-                last_err = e
-                # Billing Block이나 429/Quota 초과 등이 감지되면 60초 강제 대기
-                if any(x in str(e).lower() for x in ["exceeded", "quota", "billing", "429", "blocked"]):
-                    print("🚨 [naver_learner] [쿨다운 필터 가동] Rate limit / Billing 한도 도달 감지. 60초 강제 대기합니다...")
-                    time.sleep(60)
+    for attempt in range(1, 4):
+        try:
+            response = requests.post(
+                "https://api.deepseek.com/v1/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=90
+            )
+            if response.status_code == 200:
+                res_data = response.json()
+                return res_data['choices'][0]['message']['content'].strip()
+            elif response.status_code in [429, 503]:
+                print(f"⚠️ [naver_learner] DeepSeek API {response.status_code} 에러 감지 (시도 {attempt}/3). 15초 대기합니다...")
+                time.sleep(15)
+            else:
+                raise Exception(f"API Error status code: {response.status_code}, Response: {response.text}")
+        except Exception as e:
+            print(f"⚠️ [naver_learner] DeepSeek API 호출 시도 {attempt}/3 실패: {e}")
+            last_err = e
+            time.sleep(5)
     raise last_err
 
 
@@ -167,15 +173,10 @@ def analyze_blog_styles(keyword, blog_contents):
     """
     
     try:
-        response = generate_with_fallback(
-            prompt=prompt,
-            config=types.GenerateContentConfig(
-                temperature=0.3
-            )
-        )
-        return response.text.strip()
+        response_text = generate_with_fallback(prompt, temperature=0.3)
+        return response_text
     except Exception as e:
-        print(f"⚠️ Gemini 벤치마크 학습 실패: {e}")
+        print(f"⚠️ DeepSeek 벤치마크 학습 실패: {e}")
         return "실제 이웃에게 대화하듯 질문을 던져 공감대를 형성하는 도입부 전략을 사용할 것. 정보 전달 단락에서는 핵심 혜택을 명확히 전달하고, 가독성을 극대화하기 위해 적절한 텍스트 강조 및 구조화된 단락 전개를 활용할 것."
 
 

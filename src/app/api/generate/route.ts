@@ -133,14 +133,14 @@ export async function POST(req: Request) {
           return [];
         };
 
-        let foundImages = await fetchImages(searchParams.primary, 4);
-        if (foundImages.length < 4) {
-          const fallbackImages = await fetchImages(searchParams.fallback, 4 - foundImages.length);
+        let foundImages = await fetchImages(searchParams.primary, 1);
+        if (foundImages.length < 1) {
+          const fallbackImages = await fetchImages(searchParams.fallback, 1);
           foundImages = [...foundImages, ...fallbackImages];
         }
-        if (foundImages.length < 4) {
+        if (foundImages.length < 1) {
           const safeFallback = 'nature';
-          const safeImages = await fetchImages(safeFallback, 4 - foundImages.length);
+          const safeImages = await fetchImages(safeFallback, 1);
           foundImages = [...foundImages, ...safeImages];
         }
         imageUrls = foundImages;
@@ -270,8 +270,7 @@ export async function POST(req: Request) {
 3. 시각적 요소 및 썸네일 구조 (매우 중요!!):
    - 블로그 원본의 필수 레이아웃은 무조건 '대제목 -> 가벼운 인사말 -> [THUMBNAIL] -> 본격적인 본문 내용' 순서여야 합니다. 
    - 따라서 인사말이 끝나는 서론 직후에 반드시 [THUMBNAIL] 이라는 예약어를 단 1번 작성하세요.
-   - 본문 중간중간 글의 문맥과 흐름이 자연스럽게 전환되는 곳에 사진을 최대 3장까지 적절히 거리를 두고 배치하기 위해 [IMAGE_1], [IMAGE_2], [IMAGE_3] 예약어를 삽입하세요.
-   - 절대 <img> 태그 등을 임의로 사용하지 말고 오직 위 텍스트 예약어만 넣어야 합니다.
+   - 본문 중간에 보조 이미지 예약어([IMAGE_1], [IMAGE_2] 등)는 절대 사용하지 마십시오. 오직 썸네일 1개만 [THUMBNAIL] 예약어로 노출되어야 합니다.
 
 4. 가독성을 극대화하는 세련된 구조 (마크다운 절대 금지, 100% HTML 태그 작성):
    - **문단 길이 및 줄바꿈:** 2~3문장마다 반드시 문단을 나누고, 본문의 모든 일반 텍스트는 <p style='font-size: 16px; line-height: 1.8; margin-bottom: 26px; color: #333; letter-spacing: -0.5px;'>...</p> 태그로 감싸서 아주 읽기 편하게 만드세요.
@@ -419,9 +418,6 @@ ${deviceType === 'mobile' ? "(생성된 블로그 본문을 <p>, <br>, <b> 태�
     }
 
     let processedImages: string[] = [];
-    if (deviceType === 'desktop') {
-      processedImages = imageUrls.slice(1).map(url => `${baseUrl}/api/proxy?url=${encodeURIComponent(url)}`);
-    }
 
     const readable = new ReadableStream({
       async start(controller) {
