@@ -1,10 +1,7 @@
-import { GoogleGenAI } from "@google/genai";
 import { NextResponse } from "next/server";
 import crypto from "crypto";
 import * as fs from "fs";
 import * as path from "path";
-
-const ai = new GoogleGenAI({});
 
 export const maxDuration = 60; // Vercel 서버리스 함수 타임아웃 최대 연장
 
@@ -188,57 +185,39 @@ ${feedbackLearningGuidance}
 }
 `;
 
-    let response;
-    // 2.5 버전이 터졌을 경우, 가장 우수하고 안정적인 gemini-pro를 최우선 투입합니다
-    const fallbackModels = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.5-pro"];
-    let attempt = 0;
-
-    while (attempt < fallbackModels.length) {
-      try {
-        const currentModel = fallbackModels[attempt];
-        
-        // 마지막 최후의 보루 시도 시, 구글 검색 도구가 503 원인일 수 있으므로 검색 툴을 제거합니다.
-        const currentConfig: any = {
-           systemInstruction: "당신은 트렌드를 분석하는 AI입니다. 구글 검색 과정이나 원본 검색 데이터({'title': ...} 형태)를 절대 출력하지 마세요. 오직 사용자가 요청한 JSON 형식 문서만 출력해야 합니다.",
-           temperature: 0.95, // 온도를 높여 더욱 다양하고 창의적인 키워드 도출 유도
-        };
-        if (attempt < fallbackModels.length - 1) {
-           currentConfig.tools = [{ googleSearch: {} }];
-        }
-
-        response = await ai.models.generateContent({
-          model: currentModel,
-          contents: prompt,
-          config: currentConfig,
-        });
-        break; // 성공 시 탈출
-      } catch (err: any) {
-        attempt++;
-        const is503 = err?.status === 503 || err?.message?.includes('503') || err?.message?.includes('high demand') || err?.message?.includes('UNAVAILABLE');
-        const is429 = err?.status === 429 || err?.message?.includes('429') || err?.message?.includes('quota');
-        
-        if ((is503 || is429) && attempt < fallbackModels.length) {
-           const waitMs = is429 ? 15000 : 2500;
-           console.warn(`[Agent-Trend] 503/429 Error on ${fallbackModels[attempt-1]}. Waiting ${waitMs}ms before fallback to ${fallbackModels[attempt]}...`);
-           await new Promise(resolve => setTimeout(resolve, waitMs));
-           continue; 
-        } else {
-           if (attempt >= fallbackModels.length) {
-             throw new Error('현재 구글 AI API 요청 제한량(Quota) 초과 또는 트래픽 과부하가 발생했습니다. 잠시 후 다시 시도해주세요. (' + (err?.message || '') + ')');
-           }
-           throw new Error(err?.message || '알 수 없는 오류');
-        }
-      }
-    }
-
-    if (!response) {
-      throw new Error('AI 응답을 받지 못했습니다.');
+    const deepseekApiKey = process.env.DEEPSEEK_API_KEY;
+    if (!deepseekApiKey || deepseekApiKey.includes("your_deepseek_api_key")) {
+      return NextResponse.json({ error: "DEEPSEEK_API_KEY가 설정되지 않았습니다. .env.local 파일을 확인해 주세요." }, { status: 400 });
     }
 
     let trends = [];
     try {
-      const text = response.text || "";
-      // AI가 "The search results..." 와 같은 사족을 붙일 경우를 대비해 순수 JSON 블록만 추출
+      const res = await fetch("https://api.deepseek.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${deepseekApiKey}`
+        },
+        body: JSON.stringify({
+          model: "deepseek-chat",
+          messages: [
+            { role: "system", content: "당신은 트렌드를 분석하는 AI입니다. 구글 검색 과정이나 원본 검색 데이터({'title': ...} 형태)를 절대 출력하지 마세요. 오직 사용자가 요청한 JSON 형식 문서만 출력해야 합니다." },
+            { role: "user", content: prompt }
+          ],
+          response_format: {
+            type: "json_object"
+          },
+          temperature: 0.95
+        })
+      });
+
+      if (!res.ok) {
+        const errText = await res.text();
+        throw new Error(`DeepSeek API failed: ${res.status} ${errText}`);
+      }
+
+      const resData = await res.json();
+      const text = resData.choices[0].message.content.trim();
       const startIndex = text.indexOf('{');
       const endIndex = text.lastIndexOf('}');
       
@@ -250,12 +229,10 @@ ${feedbackLearningGuidance}
         throw new Error("JSON 블록을 찾을 수 없습니다.");
       }
       
-      // 개수 제한 (만약 5개 이상이면 자름)
       trends = trends.slice(0, 5);
-      
     } catch (e: any) {
-      console.error("Gemini JSON parse failed, text was:", response.text);
-      return NextResponse.json({ error: `AI가 트렌드를 분석하는 중 오류가 발생했습니다: JSON 형태가 아닙니다. (${e.message})` }, { status: 500 });
+      console.error("DeepSeek API call/parse failed:", e);
+      return NextResponse.json({ error: `AI가 트렌드를 분석하는 중 오류가 발생했습니다: ${e.message}` }, { status: 500 });
     }
 
     // 네이버 검색광고 API로 정확한 트래픽(월간 검색량) 조회
