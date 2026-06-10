@@ -262,10 +262,7 @@ def generate_blog_post(title, summary, link, persona):
          `<blockquote style='border-left: 4px solid #00c73c; padding-left: 14px; margin-top: 40px; margin-bottom: 20px; font-weight: bold;'>[소제목 이름]</blockquote>` (또는 테두리 색상을 `#ff9900`, `#0066ff` 등으로 다양화)
          소제목 바로 첫 문장은 AI 발췌에 최적화된 명료한 핵심 요약 단독 문장을 배치한 뒤(일부 소제목에는 필수 지침에 따른 Q&A 세트 결합), 그 아래에 독백체 세부 설명과 팁을 기재하십시오.
        - **(4) 마무리**: 핵심 요약 및 독자가 실생활에 바로 대입해 활용할 실전 액션 포인트를 정돈하여 기재하십시오.
-       - **(5) [필수] "같이 읽어보기" (내부 추천 글) 링크 블록**:
-         마무리 바로 위(또는 아웃트로 바로 직전)에, 연관 포스팅 추천을 통해 방문자를 붙잡아두는 `같이 읽어보기` 섹션을 템플릿화하여 아래 HTML 마크업으로 무조건 삽입하십시오:
-         `<br><blockquote style='border-left: 4px solid #ff9900; padding-left: 12px; font-size: 14px; color: #555;'><b>같이 읽어보기 좋은 추천 글</b><br><a href='#' style='color: #0066ff; text-decoration: none;'>[본문 키워드와 연관된 가상의 추천 포스팅 제목 1]</a><br><a href='#' style='color: #0066ff; text-decoration: none;'>[본문 키워드와 연관된 가상의 추천 포스팅 제목 2]</a></blockquote>`
-       - **(6) 면책 고지 및 팩트체크**: 결론 맨 하단에 완전히 무작위화된 형태의 `<p style='font-size: 13px; color: #888; text-align: center; line-height: 1.6;'><b>🚨 [팩트체크 및 면책고지]</b><br>...</p>`를 생성하십시오.
+       - **(5) 면책 고지 및 팩트체크**: 결론 맨 하단에 완전히 무작위화된 형태의 `<p style='font-size: 13px; color: #888; text-align: center; line-height: 1.6;'><b>🚨 [팩트체크 및 면책고지]</b><br>...</p>`를 생성하십시오.
          (제휴/협찬 등이 필요한 'brandconnect' 주제인 경우, 첫 댓글 고정 유도 문구 또는 법적 필수 공정위 고지 문구를 무작위 동적 생성하여 반드시 융합할 것.)
     6. 썸네일 카피라이팅 후킹 지침:
        - thumbnailTop: 해시태그3개, thumbnailMid: 핵심주제, thumbnailBottom: 하단어그로문구
@@ -283,7 +280,7 @@ def generate_blog_post(title, summary, link, persona):
         "thumbnailBottom": "하단어그로문구"
       }},
       "title": "클릭하고 싶은 블로그 제목 한 줄 (후킹 극대화 및 검색 타겟 키워드 좌측 배치)",
-      "content": "HTML로 완벽하게 다듬어진 블로그 본문 (한눈에 보는 요약, 도입, 소제목 3~6개 본문(Q&A 구조 포함), 마무리, 같이 읽어보기 섹션, 면책고지, [THUMBNAIL] 및 [IMAGE_1] 예약어 포함)"
+      "content": "HTML로 완벽하게 다듬어진 블로그 본문 (한눈에 보는 요약, 도입, 소제목 3~6개 본문(Q&A 구조 포함), 마무리, 면책고지, [THUMBNAIL] 및 [IMAGE_1] 예약어 포함)"
     }}
     """
 
