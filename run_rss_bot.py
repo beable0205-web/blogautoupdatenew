@@ -9,8 +9,6 @@ import random
 import json
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
-from google import genai
-from google.genai import types
 # 윈도우 콘솔 환경에서 이모지 및 다국어 출력 시 발생하는 cp949 인코딩 에러 방지
 if sys.stdout.encoding.lower() != 'utf-8':
     sys.stdout.reconfigure(encoding='utf-8')
@@ -18,13 +16,11 @@ if sys.stdout.encoding.lower() != 'utf-8':
 import datetime
 load_dotenv(dotenv_path=".env.local")
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
 
-if not GEMINI_API_KEY:
-    print("❌ 에러: .env.local 파일에 GEMINI_API_KEY가 없습니다.")
+if not DEEPSEEK_API_KEY or "your_deepseek_api_key" in DEEPSEEK_API_KEY:
+    print("❌ 에러: .env.local 파일에 DEEPSEEK_API_KEY가 설정되지 않았습니다.")
     sys.exit(1)
-
-client = genai.Client(api_key=GEMINI_API_KEY)
 
 # RSS Feeds to monitor
 FEEDS = {
@@ -291,67 +287,53 @@ def generate_blog_post(title, summary, link, persona):
     }}
     """
 
-    # 2. 초저비용 모드 (gemini-2.5-flash 고정) 스위칭 지원
-    use_low_cost = os.environ.get("USE_LOW_COST_MODEL", "False").strip().lower() == "true"
-    
-    if use_low_cost:
-        print("💡 [초저비용 모드 활성화] 본문 생성에 gemini-2.5-flash 단일 모델을 사용하여 비용을 50배 절감합니다.")
-        models = ['gemini-2.5-flash']
-    else:
-        models = ['gemini-2.5-pro', 'gemini-2.5-flash']
-
     try:
-        res = None
+        res_data = None
         last_err = None
         
-        # 구글 검색을 활용한 팩트체크 장착 config
-        for model_name in models:
-            for attempt in range(1, 3):
-                try:
-                    config = types.GenerateContentConfig(
-                        system_instruction="당신은 최고 품질의 블로그 원고를 생산하고 팩트를 체크하는 보조 AI입니다. 반드시 구글 검색 결과를 적극 참고해 거짓 없는 최신 정보를 담으십시오. 반드시 JSON 형식으로만 최종 응답해야 합니다.",
-                        response_mime_type="application/json",
-                        tools=[types.Tool(google_search=types.GoogleSearch())],
-                        temperature=0.3
-                    )
-                    res = client.models.generate_content(
-                        model=model_name,
-                        contents=prompt,
-                        config=config
-                    )
-                    break
-                except Exception as search_err:
-                    print(f"⚠️ {model_name} (시도 {attempt}/2) 툴 호출 실패로 툴 없이 재시도합니다: {search_err}")
-                    # 만약 Billing Block이나 429가 의심되면 강제로 60초 쿨다운
-                    if any(x in str(search_err).lower() for x in ["exceeded", "quota", "billing", "429", "blocked"]):
-                        print("🚨 [쿨다운 필터 가동] Rate limit / Billing 한도 도달 감지. 60초 강제 대기합니다...")
-                        time.sleep(60)
-                    try:
-                        config = types.GenerateContentConfig(
-                            system_instruction="당신은 최고 품질의 블로그 원고를 생산하는 보조 AI입니다. 반드시 JSON 형식으로만 최종 응답해야 합니다.",
-                            response_mime_type="application/json",
-                            temperature=0.3
-                        )
-                        res = client.models.generate_content(
-                            model=model_name,
-                            contents=prompt,
-                            config=config
-                        )
-                        break
-                    except Exception as inner_err:
-                        print(f"⚠️ {model_name} (시도 {attempt}/2) 일반 시도 실패: {inner_err}")
-                        last_err = inner_err
-                        if any(x in str(inner_err).lower() for x in ["exceeded", "quota", "billing", "429", "blocked"]):
-                            print("🚨 [쿨다운 필터 가동] Rate limit / Billing 한도 도달 감지. 60초 강제 대기합니다...")
-                            time.sleep(60)
-            if res:
-                break
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {DEEPSEEK_API_KEY}"
+        }
+        payload = {
+            "model": "deepseek-chat",
+            "messages": [
+                {"role": "system", "content": "당신은 최고 품질의 블로그 원고를 생산하는 보조 AI입니다. 반드시 JSON 형식으로만 최종 응답해야 합니다."},
+                {"role": "user", "content": prompt}
+            ],
+            "response_format": {
+                "type": "json_object"
+            },
+            "temperature": 0.3
+        }
 
-        if not res:
+        # DeepSeek API 호출 (시도 3회)
+        for attempt in range(1, 4):
+            try:
+                response = requests.post(
+                    "https://api.deepseek.com/v1/chat/completions",
+                    headers=headers,
+                    json=payload,
+                    timeout=90
+                )
+                if response.status_code == 200:
+                    res_data = response.json()
+                    break
+                elif response.status_code in [429, 503]:
+                    print(f"⚠️ DeepSeek API {response.status_code} 에러 감지 (시도 {attempt}/3). 15초 대기합니다...")
+                    time.sleep(15)
+                else:
+                    raise Exception(f"API Error status code: {response.status_code}, Response: {response.text}")
+            except Exception as e:
+                print(f"⚠️ DeepSeek API 호출 시도 {attempt}/3 실패: {e}")
+                last_err = e
+                time.sleep(5)
+
+        if not res_data:
             raise last_err if last_err else Exception("통합 원고 생성 최종 실패")
 
         # JSON 파싱
-        json_str = res.text.strip()
+        json_str = res_data['choices'][0]['message']['content'].strip()
         if json_str.startswith("```json"):
             json_str = json_str[7:]
         if json_str.endswith("```"):

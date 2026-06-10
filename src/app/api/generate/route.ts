@@ -1,7 +1,5 @@
-import { GoogleGenAI, HarmCategory, HarmBlockThreshold } from "@google/genai";
 import { NextResponse } from "next/server";
 
-const ai = new GoogleGenAI({});
 
 export const maxDuration = 300; // Vercel Pro 서버리스 함수 타임아웃 300초로 연장
 
@@ -81,41 +79,43 @@ export async function POST(req: Request) {
     
     사용자 검색어: ${keyword}`;
 
-    let transRes;
-    const transModels = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-1.5-flash"];
-    let transAttempt = 0;
-
-    while (transAttempt < transModels.length) {
-      try {
-        transRes = await ai.models.generateContent({
-          model: transModels[transAttempt],
-          contents: translatePrompt,
-          config: { temperature: 0.1, responseMimeType: "application/json" },
-        });
-        break;
-      } catch (err: any) {
-        transAttempt++;
-        const is503 = err?.status === 503 || err?.message?.includes('503') || err?.message?.includes('high demand') || err?.message?.includes('UNAVAILABLE');
-        const is429 = err?.status === 429 || err?.message?.includes('429') || err?.message?.includes('quota') || err?.message?.includes('RESOURCE_EXHAUSTED');
-        
-        if ((is503 || is429) && transAttempt < transModels.length) {
-          const waitMs = is429 ? 15000 : 3000;
-          console.warn(`[Generate-Init] 503/429 error on ${transModels[transAttempt-1]}, falling back to ${transModels[transAttempt]} after ${waitMs}ms`);
-          await new Promise(resolve => setTimeout(resolve, waitMs));
-          continue;
-        } else {
-          throw err;
-        }
-      }
+    const deepseekApiKey = process.env.DEEPSEEK_API_KEY;
+    if (!deepseekApiKey || deepseekApiKey.includes("your_deepseek_api_key")) {
+      return NextResponse.json({ error: "DEEPSEEK_API_KEY가 설정되지 않았습니다. .env.local 파일을 확인해 주세요." }, { status: 400 });
     }
-    
+
     let searchParams = { primary: "사무실", fallback: "비즈니스", englishSubject: "office desktop", thumbnailTop: "오늘의 핵심 정보", thumbnailMid: keyword || "핵심 요약", thumbnailBottom: "지금 바로 확인!" };
+    
     try {
-      const jsonStr = transRes?.text?.trim() || "{}";
+      const transResponse = await fetch("https://api.deepseek.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${deepseekApiKey}`
+        },
+        body: JSON.stringify({
+          model: "deepseek-chat",
+          messages: [
+            { role: "user", content: translatePrompt }
+          ],
+          response_format: {
+            type: "json_object"
+          },
+          temperature: 0.1
+        })
+      });
+
+      if (!transResponse.ok) {
+        const errText = await transResponse.text();
+        throw new Error(`DeepSeek API translate failed: ${transResponse.status} ${errText}`);
+      }
+
+      const transData = await transResponse.json();
+      const jsonStr = transData.choices[0].message.content.trim();
       const cleanedJsonStr = jsonStr.replace(/```json/g, '').replace(/```/g, '').trim();
       searchParams = JSON.parse(cleanedJsonStr);
     } catch (e) {
-      console.warn("Failed to parse translate response, using fallback", e);
+      console.warn("Failed to generate/parse translate response from DeepSeek, using fallback", e);
     }
 
     const PIXABAY_API_KEY = process.env.PIXABAY_API_KEY;
@@ -364,55 +364,35 @@ ${deviceType === 'mobile' ? "(생성된 블로그 본문을 <p>, <br>, <b> 태�
 [/CONTENT]
 `;
 
-    const commonConfig = {
-      systemInstruction: "당신은 블로그 포스팅 작가를 돕는 보조 AI입니다. 구글 검색 결과를 통해 팩트를 체크하되, 절대로 검색 결과의 원본 데이터(JSON이나 파이썬 딕셔너리 구조, {'title': ...})를 사용자에게 그대로 노출하거나 본문에 출력하지 마세요. 오직 깔끔하게 다듬어진 블로그 [CONTENT] 텍스트만 출력해야 합니다.",
-      temperature: 0.7,
-      maxOutputTokens: 8192,
-      tools: [{ googleSearch: {} }],
-      // @ts-ignore
-      safetySettings: [
-        { category: HarmCategory.HARM_CATEGORY_HARASSMENT, threshold: HarmBlockThreshold.BLOCK_NONE },
-        { category: HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold: HarmBlockThreshold.BLOCK_NONE },
-        { category: HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold: HarmBlockThreshold.BLOCK_NONE },
-        { category: HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold: HarmBlockThreshold.BLOCK_NONE }
-      ]
-    };
+    const systemInstruction = "당신은 블로그 포스팅 작가를 돕는 보조 AI입니다. 절대로 검색 결과의 원본 데이터(JSON이나 파이썬 딕셔너리 구조, {'title': ...})를 사용자에게 그대로 노출하거나 본문에 출력하지 마세요. 오직 깔끔하게 다듬어진 블로그 [CONTENT] 텍스트만 출력해야 합니다.";
 
-    let streamRes: any;
-    const generateModels = [
-      "gemini-2.5-flash", 
-      "gemini-2.5-flash-lite",
-      "gemini-1.5-flash"
-    ];
-    let genAttempt = 0;
+    let deepseekStreamResponse: Response;
+    try {
+      deepseekStreamResponse = await fetch("https://api.deepseek.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${deepseekApiKey}`
+        },
+        body: JSON.stringify({
+          model: "deepseek-chat",
+          messages: [
+            { role: "system", content: systemInstruction },
+            { role: "user", content: prompt }
+          ],
+          temperature: 0.7,
+          max_tokens: 8192,
+          stream: true
+        })
+      });
 
-    while (genAttempt < generateModels.length) {
-      try {
-        const currentModel = generateModels[genAttempt];
-        const currentConfig = genAttempt === generateModels.length - 1 
-          ? { ...commonConfig, tools: undefined } 
-          : commonConfig;
-
-        streamRes = await ai.models.generateContentStream({
-          model: currentModel,
-          contents: prompt,
-          config: currentConfig,
-        });
-        break;
-      } catch (generateErr: any) {
-        genAttempt++;
-        const is503 = generateErr?.status === 503 || generateErr.message?.includes('503') || generateErr.message?.includes('high demand') || generateErr.message?.includes('UNAVAILABLE');
-        const is429 = generateErr?.status === 429 || generateErr.message?.includes('429') || generateErr.message?.includes('quota') || generateErr.message?.includes('RESOURCE_EXHAUSTED');
-        
-        if ((is503 || is429) && genAttempt < generateModels.length) {
-          const waitMs = is429 ? 15000 : 3000;
-          console.warn(`[Generate] 503/429 on ${generateModels[genAttempt-1]}. Waiting ${waitMs}ms before falling back to ${generateModels[genAttempt]}...`);
-          await new Promise(resolve => setTimeout(resolve, waitMs));
-          continue; 
-        } else {
-          throw generateErr;
-        }
+      if (!deepseekStreamResponse.ok) {
+        const errText = await deepseekStreamResponse.text();
+        throw new Error(`DeepSeek stream API failed: ${deepseekStreamResponse.status} ${errText}`);
       }
+    } catch (err) {
+      console.error("DeepSeek generate stream error:", err);
+      throw err;
     }
 
     const host = req.headers.get('host') || 'localhost:3000';
@@ -452,9 +432,33 @@ ${deviceType === 'mobile' ? "(생성된 블로그 본문을 <p>, <br>, <b> 태�
 
           // 3. 실시간으로 청크 스트림을 수집하여 포스트 프로세싱
           let fullText = "";
-          for await (const chunk of streamRes) {
-            if (chunk.text) {
-              fullText += chunk.text;
+          const reader = deepseekStreamResponse.body?.getReader();
+          const decoder = new TextDecoder("utf-8");
+          let buffer = "";
+
+          if (reader) {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split("\n");
+              buffer = lines.pop() || ""; // 마지막 미완성 라인은 버퍼에 남겨둠
+
+              for (const line of lines) {
+                const cleanedLine = line.trim();
+                if (cleanedLine.startsWith("data:")) {
+                  const dataContent = cleanedLine.substring(5).trim();
+                  if (dataContent === "[DONE]") break;
+                  try {
+                    const parsed = JSON.parse(dataContent);
+                    const delta = parsed.choices[0]?.delta?.content || "";
+                    fullText += delta;
+                  } catch (e) {
+                    // JSON 파싱 실패 무시
+                  }
+                }
+              }
             }
           }
 
@@ -486,7 +490,7 @@ ${deviceType === 'mobile' ? "(생성된 블로그 본문을 <p>, <br>, <b> 태�
       }
     });
   } catch (error: unknown) {
-    console.error("Gemini API Error:", error);
+    console.error("DeepSeek API Error:", error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Failed to generate blog post" },
       { status: 500 }
