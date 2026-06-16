@@ -7,23 +7,48 @@ export const maxDuration = 300; // Vercel 서버리스 타임아웃 300초 연�
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
-    const pdfText = body.pdfText as string;
-    const deviceType = (body.deviceType as string) || "desktop";
-    const category = (body.category as string) || "economy";
+    const { searchParams: urlParams } = new URL(req.url);
+    const deviceType = urlParams.get("deviceType") || "desktop";
+    const category = urlParams.get("category") || "economy";
 
-    if (!pdfText || !pdfText.trim()) {
-      return NextResponse.json({ error: "해석할 PDF 텍스트 내용이 유효하지 않습니다." }, { status: 400 });
+    // 1. request body로부터 raw PDF 파일 바이너리 스트림 읽기 (Next.js 413 Payload Too Large 우회)
+    const arrayBuffer = await req.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    if (buffer.length === 0) {
+      return NextResponse.json({ error: "전송된 PDF 파일이 비어 있습니다." }, { status: 400 });
     }
 
-    // 1단계: 썸네일 카피 및 키워드 추출 (JSON 추출)
-    const metadataPrompt = `당신은 금융/투자 보고서를 분석하여 검색용 키워드 및 어그로 썸네일 카피를 추출하는 수석 애널리스트입니다.
-다음은 분석할 PDF 보고서의 본문 내용입니다:
----
-${pdfText.substring(0, 15000)}
----
+    // 2. pdf-parse를 통해 텍스트 추출 시도 (최대 20페이지만 파싱하여 OOM 방지)
+    let pdfText = "";
+    let isScannedPdf = false;
+    try {
+      const pdfData = await pdf(buffer, { max: 20 });
+      pdfText = pdfData.text || "";
+      if (pdfText.trim().length < 200) {
+        isScannedPdf = true;
+      }
+    } catch (parseError) {
+      console.warn("PDF text parsing failed, falling back to multimodal OCR:", parseError);
+      isScannedPdf = true;
+    }
 
-위 보고서를 깊이 이해하고, 이에 어울리는 네이버 블로그 포스팅용 검색어 정보와 메인 썸네일 카피를 작성하십시오.
+    const geminiApiKey = process.env.GEMINI_API_KEY;
+    const deepseekApiKey = process.env.DEEPSEEK_API_KEY;
+
+    if (!geminiApiKey && !deepseekApiKey) {
+      return NextResponse.json({ error: "GEMINI_API_KEY 또는 DEEPSEEK_API_KEY가 설정되지 않았습니다." }, { status: 400 });
+    }
+
+    if (isScannedPdf && !geminiApiKey) {
+      return NextResponse.json({ 
+        error: "스캔된 이미지 형식의 PDF 리포트입니다. 이를 OCR 분석하여 해석하기 위해서는 GEMINI_API_KEY가 반드시 설정되어 있어야 합니다." 
+      }, { status: 400 });
+    }
+
+    // 3. 1단계: 썸네일 카피 및 키워드 추출 (JSON 추출)
+    const metadataPrompt = `당신은 금융/투자 보고서를 분석하여 검색용 키워드 및 어그로 썸네일 카피를 추출하는 수석 애널리스트입니다.
+제공된 PDF 보고서를 깊이 이해하고, 이에 어울리는 네이버 블로그 포스팅용 검색어 정보와 메인 썸네일 카피를 작성하십시오.
 1. primary: 이 보고서의 가장 핵심 피사체/주제를 표현하는 시각적이고 직관적인 한글 단어 1~2개 (예: 주식 차트, 공장, 건물)
 2. fallback: primary 검색 실패 시 사용할 상위 카테고리 단어 (예: 금융, 경제, IT)
 3. englishSubject: 이 주제를 표현하는 구체적인 영어 단어 2~3개 (예: stock market graph, real estate model)
@@ -34,22 +59,35 @@ ${pdfText.substring(0, 15000)}
 반드시 아래 JSON 형식으로만 응답하세요. 다른 설명은 절대 붙이지 마세요.
 {"primary": "...", "fallback": "...", "englishSubject": "...", "thumbnailTop": "...", "thumbnailMid": "...", "thumbnailBottom": "..."}`;
 
-    const geminiApiKey = process.env.GEMINI_API_KEY;
-    const deepseekApiKey = process.env.DEEPSEEK_API_KEY;
-
-    if (!geminiApiKey && !deepseekApiKey) {
-      return NextResponse.json({ error: "GEMINI_API_KEY 또는 DEEPSEEK_API_KEY가 설정되지 않았습니다." }, { status: 400 });
-    }
-
     let searchParams = { primary: "주식 차트", fallback: "금융", englishSubject: "stock market chart", thumbnailTop: "#전문투자분석 #리포트분석", thumbnailMid: "리포트 분석", thumbnailBottom: "애널리스트 심층분석" };
 
     // 1단계 분석 진행
     try {
       if (geminiApiKey) {
         const ai = new GoogleGenAI({ apiKey: geminiApiKey });
+        let contents: any[] = [];
+        
+        if (isScannedPdf) {
+          // 스캔된 PDF의 경우 파일을 인라인 전송하여 Gemini 자체 멀티모달 OCR 분석 수행
+          contents = [
+            { text: metadataPrompt },
+            {
+              inlineData: {
+                data: buffer.toString("base64"),
+                mimeType: "application/pdf"
+              }
+            }
+          ];
+        } else {
+          // 일반 텍스트 PDF의 경우 추출한 텍스트 전송
+          contents = [
+            { text: `다음은 분석할 PDF 보고서의 본문 내용입니다:\n---\n${pdfText.substring(0, 15000)}\n---\n\n${metadataPrompt}` }
+          ];
+        }
+
         const res = await ai.models.generateContent({
           model: "gemini-2.5-flash",
-          contents: metadataPrompt,
+          contents: contents,
           config: {
             responseMimeType: "application/json",
             temperature: 0.1
@@ -59,6 +97,7 @@ ${pdfText.substring(0, 15000)}
         const cleanedJsonStr = jsonStr.replace(/```json/g, "").replace(/```/g, "").trim();
         searchParams = JSON.parse(cleanedJsonStr);
       } else if (deepseekApiKey) {
+        // DeepSeek는 멀티모달 PDF를 직접 수용하지 못하므로, 텍스트가 추출된 경우만 지원
         const transResponse = await fetch("https://api.deepseek.com/v1/chat/completions", {
           method: "POST",
           headers: {
@@ -67,7 +106,7 @@ ${pdfText.substring(0, 15000)}
           },
           body: JSON.stringify({
             model: "deepseek-chat",
-            messages: [{ role: "user", content: metadataPrompt }],
+            messages: [{ role: "user", content: `다음은 분석할 PDF 보고서의 본문 내용입니다:\n---\n${pdfText.substring(0, 15000)}\n---\n\n${metadataPrompt}` }],
             response_format: { type: "json_object" },
             temperature: 0.1
           })
@@ -83,7 +122,7 @@ ${pdfText.substring(0, 15000)}
       console.warn("PDF Metadata parsing failed, using fallback metadata", e);
     }
 
-    // 2단계: Pixabay 대표 이미지 1장 가져오기
+    // 4. 2단계: Pixabay 대표 이미지 1장 가져오기
     const PIXABAY_API_KEY = process.env.PIXABAY_API_KEY;
     let imageUrls: string[] = [];
     
@@ -113,18 +152,14 @@ ${pdfText.substring(0, 15000)}
       }
     }
 
+    // 5. 3단계: 본문 생성 프롬프트 조립 (전문적인 투자 블로그)
     const prompt = `당신은 금융/투자 리서치 센터 및 자산운용사에서 다년간 투자 전략과 기업 분석을 담당한 수석 애널리스트입니다.
-우리는 사용자가 제공한 PDF 보고서를 바탕으로, 독자들에게 전문적이면서도 가독성이 뛰어난 네이버 블로그용 투자 분석 글을 작성해야 합니다.
-
-[분석할 PDF 보고서 본문 내용]
----
-${pdfText.substring(0, 20000)}
----
+우리는 제공된 PDF 보고서를 바탕으로, 독자들에게 전문적이면서도 가독성이 뛰어난 네이버 블로그용 투자 분석 글을 작성해야 합니다.
 
 [🚨 작성 지침 (전문 투자 분석 블로그)]
 1. **전문성 및 신뢰성:**
    - 어조는 철저히 **전문적이고, 객관적이며, 신뢰감 있는 경어체**로 일관되게 작성하십시오. 친근하거나 가벼운 사담 말투, 반말, 슬랭(예: ~음, ~임, ~였음, 호구 등)은 **절대 금지**합니다. (~습니다, ~입니다, ~라고 판단됩니다 등 공적이고 정돈된 표준어 사용)
-   - PDF 내의 모든 수치(금리, 주가, 목표가, 비율 등)는 **100% 정확하게 인용**되어야 합니다. 임의로 숫자를 지어내거나 추정치를 팩트인 것처럼 작성하는 행동은 엄격히 금지합니다. (PDF 본문에 나타나지 않은 구체적인 수치는 절대 임의 기재하지 말 것)
+   - PDF 내의 모든 수치(금리, 주가, 목표가, 비율 등)는 **100% 정확하게 인용**되어야 합니다. 임의로 숫자를 지어내거나 추정치를 팩트인 것처럼 작성하는 행동은 엄격히 금지합니다. (PDF 내용에 나타나지 않은 구체적인 수치는 절대 임의 기재하지 말 것)
 2. **구조적 가독성 (HTML 태그 사용):**
    - 글은 마크다운 기호(예: #, *, - 등) 없이 오직 깔끔한 HTML 태그(\`<p>\`, \`<b>\`, \`<h2>\`, \`<h3>\`, \`<table>\`, \`<tr>\`, \`<td>\`, \`<th>\` 등)로만 구성하십시오.
    - 스마트폰 화면 가로너비에서 리듬감 있게 줄바꿈이 깨지지 않도록, 한 줄당 평균 15~20자 내외로 호흡을 쪼개어 문장 중간에 의도적으로 자주 줄바꿈(HTML \`<br>\`) 처리를 하십시오.
@@ -151,16 +186,32 @@ ${pdfText.substring(0, 20000)}
     let fullText = "";
     let deepseekStreamResponse: Response | null = null;
 
-    // PDF 기반 분석은 팩트체크가 매우 중요하므로 Gemini 2.5-flash를 우선 적용 (구글 검색 Grounding 연동)
     const useGemini = !!geminiApiKey;
 
     if (useGemini) {
-      console.log(`[Generate-PDF] Using Gemini API (gemini-2.5-flash) with Google Search grounding.`);
+      console.log(`[Generate-PDF] Using Gemini API (gemini-2.5-flash). Scanned PDF: ${isScannedPdf}`);
       try {
         const ai = new GoogleGenAI({ apiKey: geminiApiKey });
+        let contents: any[] = [];
+        if (isScannedPdf) {
+          contents = [
+            { text: prompt },
+            {
+              inlineData: {
+                data: buffer.toString("base64"),
+                mimeType: "application/pdf"
+              }
+            }
+          ];
+        } else {
+          contents = [
+            { text: `[분석할 PDF 보고서 본문 내용]\n---\n${pdfText.substring(0, 20000)}\n---\n\n${prompt}` }
+          ];
+        }
+
         const response = await ai.models.generateContent({
           model: "gemini-2.5-flash",
-          contents: prompt,
+          contents: contents,
           config: {
             systemInstruction: systemInstruction + " 반드시 구글 검색 결과를 적극 참고해 거짓 없는 최신 정보를 담으십시오.",
             tools: [{ googleSearch: {} }],
@@ -169,11 +220,14 @@ ${pdfText.substring(0, 20000)}
         });
         fullText = response.text || "";
       } catch (err) {
-        console.error("Gemini PDF grounding call failed, falling back to DeepSeek:", err);
+        console.error("Gemini PDF generation failed, falling back to DeepSeek:", err);
       }
     }
 
     if (!fullText && deepseekApiKey) {
+      if (isScannedPdf) {
+        throw new Error("스캔된 PDF 이미지 리포트입니다. 이미지를 분석하여 본문을 생성하려면 GEMINI_API_KEY가 필요합니다.");
+      }
       console.log(`[Generate-PDF] Falling back or using DeepSeek-V3 API.`);
       try {
         deepseekStreamResponse = await fetch("https://api.deepseek.com/v1/chat/completions", {
@@ -186,7 +240,7 @@ ${pdfText.substring(0, 20000)}
             model: "deepseek-chat",
             messages: [
               { role: "system", content: systemInstruction },
-              { role: "user", content: prompt }
+              { role: "user", content: `[분석할 PDF 보고서 본문 내용]\n---\n${pdfText.substring(0, 20000)}\n---\n\n${prompt}` }
             ],
             temperature: 0.3,
             max_tokens: 8192,
@@ -230,7 +284,6 @@ ${pdfText.substring(0, 20000)}
       console.error("OG Thumbnail Generation Failed:", imgError);
     }
 
-    // 보조 이미지는 필요 없다고 하였으므로 빈 배열
     const processedImages: string[] = [];
 
     const readable = new ReadableStream({
@@ -265,7 +318,7 @@ ${pdfText.substring(0, 20000)}
                       const delta = parsed.choices[0]?.delta?.content || "";
                       finalFullText += delta;
                     } catch (e) {
-                      // JSON 파싱 실패 무시
+                      // ignore
                     }
                   }
                 }
