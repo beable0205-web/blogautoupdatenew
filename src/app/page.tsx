@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Sparkles, Copy, CheckCircle2, PenTool, Loader2, AlertCircle, Lightbulb, TrendingUp, DollarSign } from "lucide-react";
+import { Sparkles, Copy, CheckCircle2, PenTool, Loader2, AlertCircle, Lightbulb, TrendingUp, DollarSign, FileUp, Trash2 } from "lucide-react";
 
 export default function Home() {
   const [keyword, setKeyword] = useState("");
@@ -16,6 +16,9 @@ export default function Home() {
   } | null>(null);
   
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  
+  const [mode, setMode] = useState<'keyword' | 'pdf'>('keyword');
+  const [pdfFile, setPdfFile] = useState<File | null>(null);
 
   // 통합 트렌드 (일반 + 경제)
   const [aiTrends, setAiTrends] = useState<any[]>([]);
@@ -93,12 +96,17 @@ export default function Home() {
   const handleGenerate = async (e?: React.FormEvent | null, overrideKeyword?: string, category: string = 'general') => {
     if (e) e.preventDefault();
     
-    let currentKeyword = overrideKeyword || keyword;
-    
-    if (!currentKeyword.trim()) return;
-
-    if (overrideKeyword) {
-      setKeyword(overrideKeyword);
+    if (mode === 'keyword') {
+      let currentKeyword = overrideKeyword || keyword;
+      if (!currentKeyword.trim()) return;
+      if (overrideKeyword) {
+        setKeyword(overrideKeyword);
+      }
+    } else {
+      if (!pdfFile) {
+        setErrorMsg("분석할 PDF 파일을 업로드해 주세요.");
+        return;
+      }
     }
 
     setIsGenerating(true);
@@ -108,13 +116,28 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
 
     try {
-      const response = await fetch('/api/generate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ keyword: currentKeyword, deviceType: 'mobile', category }),
-      });
+      let response: Response;
+
+      if (mode === 'keyword') {
+        let currentKeyword = overrideKeyword || keyword;
+        response = await fetch('/api/generate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ keyword: currentKeyword, deviceType: 'mobile', category }),
+        });
+      } else {
+        const formData = new FormData();
+        formData.append("file", pdfFile!);
+        formData.append("deviceType", "mobile");
+        formData.append("category", category);
+
+        response = await fetch('/api/generate-pdf', {
+          method: 'POST',
+          body: formData,
+        });
+      }
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
@@ -361,150 +384,229 @@ export default function Home() {
               <PenTool className="w-6 h-6 text-slate-800" />
               AI가 알아서 🚀 빈집 털어옵니다
             </h2>
+
+            {/* 생성 모드 선택 탭 */}
+            <div className="flex bg-slate-100 p-1 rounded-xl mb-6 border border-slate-200">
+              <button
+                type="button"
+                onClick={() => setMode('keyword')}
+                className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${
+                  mode === 'keyword'
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                키워드 자동 생성
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode('pdf')}
+                className={`flex-1 py-2.5 text-sm font-bold rounded-lg transition-all ${
+                  mode === 'pdf'
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                PDF 리포트 분석
+              </button>
+            </div>
             
             <form onSubmit={handleGenerate} className="space-y-6">
-              <div className="space-y-4">
-                
-                {/* 핵심 키워드 입력 */}
-                <div className="space-y-2 mb-2">
-                  <label htmlFor="trendCoreKeyword" className="block text-sm font-semibold">
-                    트렌드 추출용 핵심 키워드 <span className="text-slate-400 font-normal">(선택)</span>
-                  </label>
-                  <input
-                    id="trendCoreKeyword"
-                    type="text"
-                    value={trendCoreKeyword}
-                    onChange={(e) => setTrendCoreKeyword(e.target.value)}
-                    placeholder="예) 60대 비즈니스 경제"
-                    className="w-full px-4 py-3 rounded-md border border-slate-300 bg-white text-slate-900 placeholder-slate-400 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none transition-all shadow-sm"
-                  />
-                  <p className="text-xs text-slate-500">두 번째 블로그 추출 시 키워드를 기반으로 연관 롱테일을 찾아옵니다.</p>
-                </div>
+              {mode === 'keyword' ? (
+                <div className="space-y-4">
+                  {/* 핵심 키워드 입력 */}
+                  <div className="space-y-2 mb-2">
+                    <label htmlFor="trendCoreKeyword" className="block text-sm font-semibold">
+                      트렌드 추출용 핵심 키워드 <span className="text-slate-400 font-normal">(선택)</span>
+                    </label>
+                    <input
+                      id="trendCoreKeyword"
+                      type="text"
+                      value={trendCoreKeyword}
+                      onChange={(e) => setTrendCoreKeyword(e.target.value)}
+                      placeholder="예) 60대 비즈니스 경제"
+                      className="w-full px-4 py-3 rounded-md border border-slate-300 bg-white text-slate-900 placeholder-slate-400 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none transition-all shadow-sm"
+                    />
+                    <p className="text-xs text-slate-500">두 번째 블로그 추출 시 키워드를 기반으로 연관 롱테일을 찾아옵니다.</p>
+                  </div>
 
-                {/* 10 Core Bot Modes (2 Columns x 5 Rows) - 비즈니스/경제 10대 황금 카테고리 재편 */}
-                <div className="grid grid-cols-2 gap-0 border border-slate-300 rounded-md overflow-hidden bg-slate-200 gap-[1px]">
-                  {/* Row 1 */}
-                  <button type="button" onClick={() => toggleBotSelection('bot1')} disabled={isAnyLoading} className={`w-full px-4 py-4 bg-white hover:bg-slate-50 flex flex-col items-start gap-1 transition-colors ${selectedBots.includes('bot1') ? 'bg-green-100 ring-2 ring-inset ring-green-500' : ''}`}>
-                    <div className="flex items-center gap-1">
-                      {isTrendLoading && selectedBots.includes('bot1') ? <Loader2 className="w-4 h-4 animate-spin text-green-600" /> : <Sparkles className="w-4 h-4 text-black" />}
-                      <span className="text-[14px] font-bold text-slate-900 text-left">1호기 (재테크/부업)</span>
-                    </div>
-                    <span className="text-[12px] font-normal text-slate-600 leading-tight text-left">앱테크/N잡러 부의 추월차선</span>
-                  </button>
-                  <button type="button" onClick={() => toggleBotSelection('bot2')} disabled={isAnyLoading} className={`w-full px-4 py-4 bg-white hover:bg-slate-50 flex flex-col items-start gap-1 transition-colors ${selectedBots.includes('bot2') ? 'bg-green-100 ring-2 ring-inset ring-green-500' : ''}`}>
-                    <div className="flex items-center gap-1">
-                      {isTrendLoading && selectedBots.includes('bot2') ? <Loader2 className="w-4 h-4 animate-spin text-green-600" /> : <Sparkles className="w-4 h-4 text-black" />}
-                      <span className="text-[14px] font-bold text-slate-900 text-left">2호기 (지원금/복지)</span>
-                    </div>
-                    <span className="text-[12px] font-normal text-slate-600 leading-tight text-left">숨은 환급금/지자체 복지 혜택</span>
-                  </button>
-                  
-                  {/* Row 2 */}
-                  <button type="button" onClick={() => toggleBotSelection('bot3')} disabled={isAnyLoading} className={`w-full px-4 py-4 bg-white hover:bg-slate-50 flex flex-col items-start gap-1 transition-colors ${selectedBots.includes('bot3') ? 'bg-green-100 ring-2 ring-inset ring-green-500' : ''}`}>
-                    <div className="flex items-center gap-1">
-                      {isTrendLoading && selectedBots.includes('bot3') ? <Loader2 className="w-4 h-4 animate-spin text-green-600" /> : <Sparkles className="w-4 h-4 text-black" />}
-                      <span className="text-[14px] font-bold text-slate-900 text-left">3호기 (부동산/대출)</span>
-                    </div>
-                    <span className="text-[12px] font-normal text-slate-600 leading-tight text-left">주거 디딤돌/버팀목 특례 정책</span>
-                  </button>
-                  <button type="button" onClick={() => toggleBotSelection('bot4')} disabled={isAnyLoading} className={`w-full px-4 py-4 bg-white hover:bg-slate-50 flex flex-col items-start gap-1 transition-colors ${selectedBots.includes('bot4') ? 'bg-green-100 ring-2 ring-inset ring-green-500' : ''}`}>
-                    <div className="flex items-center gap-1">
-                      {isTrendLoading && selectedBots.includes('bot4') ? <Loader2 className="w-4 h-4 animate-spin text-green-600" /> : <Sparkles className="w-4 h-4 text-black" />}
-                      <span className="text-[14px] font-bold text-slate-900 text-left">4호기 (예적금/특판)</span>
-                    </div>
-                    <span className="text-[12px] font-normal text-slate-600 leading-tight text-left">초고금리 파킹통장/적금 비교</span>
-                  </button>
-                  
-                  {/* Row 3 */}
-                  <button type="button" onClick={() => toggleBotSelection('bot5')} disabled={isAnyLoading} className={`w-full px-4 py-4 bg-white hover:bg-slate-50 flex flex-col items-start gap-1 transition-colors ${selectedBots.includes('bot5') ? 'bg-green-100 ring-2 ring-inset ring-green-500' : ''}`}>
-                    <div className="flex items-center gap-1">
-                      {isTrendLoading && selectedBots.includes('bot5') ? <Loader2 className="w-4 h-4 animate-spin text-green-600" /> : <Sparkles className="w-4 h-4 text-black" />}
-                      <span className="text-[14px] font-bold text-slate-900 text-left">5호기 (세금/연금)</span>
-                    </div>
-                    <span className="text-[12px] font-normal text-slate-600 leading-tight text-left">연말정산/상속세/건보료 줄이기</span>
-                  </button>
-                  <button type="button" onClick={() => toggleBotSelection('bot6')} disabled={isAnyLoading} className={`w-full px-4 py-4 bg-white hover:bg-slate-50 flex flex-col items-start gap-1 transition-colors ${selectedBots.includes('bot6') ? 'bg-green-100 ring-2 ring-inset ring-green-500' : ''}`}>
-                    <div className="flex items-center gap-1">
-                      {isTrendLoading && selectedBots.includes('bot6') ? <Loader2 className="w-4 h-4 animate-spin text-green-600" /> : <Sparkles className="w-4 h-4 text-black" />}
-                      <span className="text-[14px] font-bold text-slate-900 text-left">6호기 (주식/세계경제)</span>
-                    </div>
-                    <span className="text-[12px] font-normal text-slate-600 leading-tight text-left">미국 빅테크/국내 테마주 동향</span>
-                  </button>
-                  
-                  {/* Row 4 */}
-                  <button type="button" onClick={() => toggleBotSelection('bot7')} disabled={isAnyLoading} className={`w-full px-4 py-4 bg-white hover:bg-slate-50 flex flex-col items-start gap-1 transition-colors ${selectedBots.includes('bot7') ? 'bg-green-100 ring-2 ring-inset ring-green-500' : ''}`}>
-                    <div className="flex items-center gap-1">
-                      {isTrendLoading && selectedBots.includes('bot7') ? <Loader2 className="w-4 h-4 animate-spin text-green-600" /> : <Sparkles className="w-4 h-4 text-black" />}
-                      <span className="text-[14px] font-bold text-slate-900 text-left">7호기 (가상자산)</span>
-                    </div>
-                    <span className="text-[12px] font-normal text-slate-600 leading-tight text-left">비트코인 반감기/과세 대응 팁</span>
-                  </button>
-                  <button type="button" onClick={() => toggleBotSelection('bot8')} disabled={isAnyLoading} className={`w-full px-4 py-4 bg-white hover:bg-slate-50 flex flex-col items-start gap-1 transition-colors ${selectedBots.includes('bot8') ? 'bg-green-100 ring-2 ring-inset ring-green-500' : ''}`}>
-                    <div className="flex items-center gap-1">
-                      {isTrendLoading && selectedBots.includes('bot8') ? <Loader2 className="w-4 h-4 animate-spin text-green-600" /> : <Sparkles className="w-4 h-4 text-black" />}
-                      <span className="text-[14px] font-bold text-slate-900 text-left">8호기 (창업/소상공인)</span>
-                    </div>
-                    <span className="text-[12px] font-normal text-slate-600 leading-tight text-left">청년창업/소상공인 무이자 대출</span>
-                  </button>
-                  
-                  {/* Row 5 */}
-                  <button type="button" onClick={() => toggleBotSelection('bot9')} disabled={isAnyLoading} className={`w-full px-4 py-4 bg-white hover:bg-slate-50 flex flex-col items-start gap-1 transition-colors ${selectedBots.includes('bot9') ? 'bg-green-100 ring-2 ring-inset ring-green-500' : ''}`}>
-                    <div className="flex items-center gap-1">
-                      {isTrendLoading && selectedBots.includes('bot9') ? <Loader2 className="w-4 h-4 animate-spin text-green-600" /> : <Sparkles className="w-4 h-4 text-black" />}
-                      <span className="text-[14px] font-bold text-slate-900 text-left">9호기 (소비/쇼핑테크)</span>
-                    </div>
-                    <span className="text-[12px] font-normal text-slate-600 leading-tight text-left">마트 세일/알리테무 직구 대응</span>
-                  </button>
-                  <button type="button" onClick={() => toggleBotSelection('bot10')} disabled={isAnyLoading} className={`w-full px-4 py-4 bg-white hover:bg-slate-50 flex flex-col items-start gap-1 transition-colors ${selectedBots.includes('bot10') ? 'bg-green-100 ring-2 ring-inset ring-green-500' : ''}`}>
-                    <div className="flex items-center gap-1">
-                      {isTrendLoading && selectedBots.includes('bot10') ? <Loader2 className="w-4 h-4 animate-spin text-green-600" /> : <Sparkles className="w-4 h-4 text-black" />}
-                      <span className="text-[14px] font-bold text-slate-900 text-left">10호기 (비즈니스/트렌드)</span>
-                    </div>
-                    <span className="text-[12px] font-normal text-slate-600 leading-tight text-left">챗GPT 업무 활용/몸값 올리기</span>
-                  </button>
-                </div>
-
-                {selectedBots.length > 0 && (
-                  <div className="mt-4">
-                    <button
-                      type="button"
-                      onClick={handleExtractMultiTrends}
-                      disabled={selectedBots.length !== 1 || isTrendLoading}
-                      className={`w-full py-4 rounded-lg font-bold text-lg transition-all flex items-center justify-center gap-2 ${
-                        selectedBots.length === 1
-                          ? 'bg-[#00c73c] hover:bg-[#00a833] text-white shadow-lg transform hover:scale-[1.02]'
-                          : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                      }`}
-                    >
-                      {isTrendLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <Sparkles className="w-6 h-6" />}
-                      {selectedBots.length === 1 ? "선택한 1개 호기로 5개 키워드 추출 🚀" : "1개의 호기를 선택해주세요"}
+                  {/* 10 Core Bot Modes (2 Columns x 5 Rows) - 비즈니스/경제 10대 황금 카테고리 재편 */}
+                  <div className="grid grid-cols-2 gap-0 border border-slate-300 rounded-md overflow-hidden bg-slate-200 gap-[1px]">
+                    {/* Row 1 */}
+                    <button type="button" onClick={() => toggleBotSelection('bot1')} disabled={isAnyLoading} className={`w-full px-4 py-4 bg-white hover:bg-slate-50 flex flex-col items-start gap-1 transition-colors ${selectedBots.includes('bot1') ? 'bg-green-100 ring-2 ring-inset ring-green-500' : ''}`}>
+                      <div className="flex items-center gap-1">
+                        {isTrendLoading && selectedBots.includes('bot1') ? <Loader2 className="w-4 h-4 animate-spin text-green-600" /> : <Sparkles className="w-4 h-4 text-black" />}
+                        <span className="text-[14px] font-bold text-slate-900 text-left">1호기 (재테크/부업)</span>
+                      </div>
+                      <span className="text-[12px] font-normal text-slate-600 leading-tight text-left">앱테크/N잡러 부의 추월차선</span>
+                    </button>
+                    <button type="button" onClick={() => toggleBotSelection('bot2')} disabled={isAnyLoading} className={`w-full px-4 py-4 bg-white hover:bg-slate-50 flex flex-col items-start gap-1 transition-colors ${selectedBots.includes('bot2') ? 'bg-green-100 ring-2 ring-inset ring-green-500' : ''}`}>
+                      <div className="flex items-center gap-1">
+                        {isTrendLoading && selectedBots.includes('bot2') ? <Loader2 className="w-4 h-4 animate-spin text-green-600" /> : <Sparkles className="w-4 h-4 text-black" />}
+                        <span className="text-[14px] font-bold text-slate-900 text-left">2호기 (지원금/복지)</span>
+                      </div>
+                      <span className="text-[12px] font-normal text-slate-600 leading-tight text-left">숨은 환급금/지자체 복지 혜택</span>
+                    </button>
+                    
+                    {/* Row 2 */}
+                    <button type="button" onClick={() => toggleBotSelection('bot3')} disabled={isAnyLoading} className={`w-full px-4 py-4 bg-white hover:bg-slate-50 flex flex-col items-start gap-1 transition-colors ${selectedBots.includes('bot3') ? 'bg-green-100 ring-2 ring-inset ring-green-500' : ''}`}>
+                      <div className="flex items-center gap-1">
+                        {isTrendLoading && selectedBots.includes('bot3') ? <Loader2 className="w-4 h-4 animate-spin text-green-600" /> : <Sparkles className="w-4 h-4 text-black" />}
+                        <span className="text-[14px] font-bold text-slate-900 text-left">3호기 (부동산/대출)</span>
+                      </div>
+                      <span className="text-[12px] font-normal text-slate-600 leading-tight text-left">주거 디딤돌/버팀목 특례 정책</span>
+                    </button>
+                    <button type="button" onClick={() => toggleBotSelection('bot4')} disabled={isAnyLoading} className={`w-full px-4 py-4 bg-white hover:bg-slate-50 flex flex-col items-start gap-1 transition-colors ${selectedBots.includes('bot4') ? 'bg-green-100 ring-2 ring-inset ring-green-500' : ''}`}>
+                      <div className="flex items-center gap-1">
+                        {isTrendLoading && selectedBots.includes('bot4') ? <Loader2 className="w-4 h-4 animate-spin text-green-600" /> : <Sparkles className="w-4 h-4 text-black" />}
+                        <span className="text-[14px] font-bold text-slate-900 text-left">4호기 (예적금/특판)</span>
+                      </div>
+                      <span className="text-[12px] font-normal text-slate-600 leading-tight text-left">초고금리 파킹통장/적금 비교</span>
+                    </button>
+                    
+                    {/* Row 3 */}
+                    <button type="button" onClick={() => toggleBotSelection('bot5')} disabled={isAnyLoading} className={`w-full px-4 py-4 bg-white hover:bg-slate-50 flex flex-col items-start gap-1 transition-colors ${selectedBots.includes('bot5') ? 'bg-green-100 ring-2 ring-inset ring-green-500' : ''}`}>
+                      <div className="flex items-center gap-1">
+                        {isTrendLoading && selectedBots.includes('bot5') ? <Loader2 className="w-4 h-4 animate-spin text-green-600" /> : <Sparkles className="w-4 h-4 text-black" />}
+                        <span className="text-[14px] font-bold text-slate-900 text-left">5호기 (세금/연금)</span>
+                      </div>
+                      <span className="text-[12px] font-normal text-slate-600 leading-tight text-left">연말정산/상속세/건보료 줄이기</span>
+                    </button>
+                    <button type="button" onClick={() => toggleBotSelection('bot6')} disabled={isAnyLoading} className={`w-full px-4 py-4 bg-white hover:bg-slate-50 flex flex-col items-start gap-1 transition-colors ${selectedBots.includes('bot6') ? 'bg-green-100 ring-2 ring-inset ring-green-500' : ''}`}>
+                      <div className="flex items-center gap-1">
+                        {isTrendLoading && selectedBots.includes('bot6') ? <Loader2 className="w-4 h-4 animate-spin text-green-600" /> : <Sparkles className="w-4 h-4 text-black" />}
+                        <span className="text-[14px] font-bold text-slate-900 text-left">6호기 (주식/세계경제)</span>
+                      </div>
+                      <span className="text-[12px] font-normal text-slate-600 leading-tight text-left">미국 빅테크/국내 테마주 동향</span>
+                    </button>
+                    
+                    {/* Row 4 */}
+                    <button type="button" onClick={() => toggleBotSelection('bot7')} disabled={isAnyLoading} className={`w-full px-4 py-4 bg-white hover:bg-slate-50 flex flex-col items-start gap-1 transition-colors ${selectedBots.includes('bot7') ? 'bg-green-100 ring-2 ring-inset ring-green-500' : ''}`}>
+                      <div className="flex items-center gap-1">
+                        {isTrendLoading && selectedBots.includes('bot7') ? <Loader2 className="w-4 h-4 animate-spin text-green-600" /> : <Sparkles className="w-4 h-4 text-black" />}
+                        <span className="text-[14px] font-bold text-slate-900 text-left">7호기 (가상자산)</span>
+                      </div>
+                      <span className="text-[12px] font-normal text-slate-600 leading-tight text-left">비트코인 반감기/과세 대응 팁</span>
+                    </button>
+                    <button type="button" onClick={() => toggleBotSelection('bot8')} disabled={isAnyLoading} className={`w-full px-4 py-4 bg-white hover:bg-slate-50 flex flex-col items-start gap-1 transition-colors ${selectedBots.includes('bot8') ? 'bg-green-100 ring-2 ring-inset ring-green-500' : ''}`}>
+                      <div className="flex items-center gap-1">
+                        {isTrendLoading && selectedBots.includes('bot8') ? <Loader2 className="w-4 h-4 animate-spin text-green-600" /> : <Sparkles className="w-4 h-4 text-black" />}
+                        <span className="text-[14px] font-bold text-slate-900 text-left">8호기 (창업/소상공인)</span>
+                      </div>
+                      <span className="text-[12px] font-normal text-slate-600 leading-tight text-left">청년창업/소상공인 무이자 대출</span>
+                    </button>
+                    
+                    {/* Row 5 */}
+                    <button type="button" onClick={() => toggleBotSelection('bot9')} disabled={isAnyLoading} className={`w-full px-4 py-4 bg-white hover:bg-slate-50 flex flex-col items-start gap-1 transition-colors ${selectedBots.includes('bot9') ? 'bg-green-100 ring-2 ring-inset ring-green-500' : ''}`}>
+                      <div className="flex items-center gap-1">
+                        {isTrendLoading && selectedBots.includes('bot9') ? <Loader2 className="w-4 h-4 animate-spin text-green-600" /> : <Sparkles className="w-4 h-4 text-black" />}
+                        <span className="text-[14px] font-bold text-slate-900 text-left">9호기 (소비/쇼핑테크)</span>
+                      </div>
+                      <span className="text-[12px] font-normal text-slate-600 leading-tight text-left">마트 세일/알리테무 직구 대응</span>
+                    </button>
+                    <button type="button" onClick={() => toggleBotSelection('bot10')} disabled={isAnyLoading} className={`w-full px-4 py-4 bg-white hover:bg-slate-50 flex flex-col items-start gap-1 transition-colors ${selectedBots.includes('bot10') ? 'bg-green-100 ring-2 ring-inset ring-green-500' : ''}`}>
+                      <div className="flex items-center gap-1">
+                        {isTrendLoading && selectedBots.includes('bot10') ? <Loader2 className="w-4 h-4 animate-spin text-green-600" /> : <Sparkles className="w-4 h-4 text-black" />}
+                        <span className="text-[14px] font-bold text-slate-900 text-left">10호기 (비즈니스/트렌드)</span>
+                      </div>
+                      <span className="text-[12px] font-normal text-slate-600 leading-tight text-left">챗GPT 업무 활용/몸값 올리기</span>
                     </button>
                   </div>
-                )}
 
-                {renderTrendBlock(aiTrends, "AI 연계 황금 키워드 TOP 5", <Lightbulb className="w-3 h-3"/>, 'emerald', selectedBots.join(','))}
+                  {selectedBots.length > 0 && (
+                    <div className="mt-4">
+                      <button
+                        type="button"
+                        onClick={handleExtractMultiTrends}
+                        disabled={selectedBots.length !== 1 || isTrendLoading}
+                        className={`w-full py-4 rounded-lg font-bold text-lg transition-all flex items-center justify-center gap-2 ${
+                          selectedBots.length === 1
+                            ? 'bg-[#00c73c] hover:bg-[#00a833] text-white shadow-lg transform hover:scale-[1.02]'
+                            : 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                        }`}
+                      >
+                        {isTrendLoading ? <Loader2 className="w-6 h-6 animate-spin" /> : <Sparkles className="w-6 h-6" />}
+                        {selectedBots.length === 1 ? "선택한 1개 호기로 5개 키워드 추출 🚀" : "1개의 호기를 선택해주세요"}
+                      </button>
+                    </div>
+                  )}
 
-                <div className="flex items-center gap-3 my-6">
-                  <div className="h-px bg-slate-200 flex-1"></div>
-                  <span className="text-sm font-semibold text-slate-400">또는</span>
-                  <div className="h-px bg-slate-200 flex-1"></div>
+                  {renderTrendBlock(aiTrends, "AI 연계 황금 키워드 TOP 5", <Lightbulb className="w-3 h-3"/>, 'emerald', selectedBots.join(','))}
+
+                  <div className="flex items-center gap-3 my-6">
+                    <div className="h-px bg-slate-200 flex-1"></div>
+                    <span className="text-sm font-semibold text-slate-400">또는</span>
+                    <div className="h-px bg-slate-200 flex-1"></div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label htmlFor="keyword" className="block text-sm font-semibold">
+                      직접 작성할 키워드 입력 <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      id="keyword"
+                      type="text"
+                      value={keyword}
+                      onChange={(e) => setKeyword(e.target.value)}
+                      placeholder="직접 작성하고 싶은 특정 키워드가 있다면 입력하세요."
+                      className="w-full px-4 py-3 rounded-md border border-slate-300 bg-white text-slate-900 placeholder-slate-400 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none transition-all shadow-sm"
+                    />
+                  </div>
                 </div>
-
-                <div className="space-y-2">
-                  <label htmlFor="keyword" className="block text-sm font-semibold">
-                    직접 작성할 키워드 입력 <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    id="keyword"
-                    type="text"
-                    value={keyword}
-                    onChange={(e) => setKeyword(e.target.value)}
-                    placeholder="직접 작성하고 싶은 특정 키워드가 있다면 입력하세요."
-                    className="w-full px-4 py-3 rounded-md border border-slate-300 bg-white text-slate-900 placeholder-slate-400 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 outline-none transition-all shadow-sm"
-                  />
+              ) : (
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="block text-sm font-semibold">
+                      분석할 PDF 리포트 파일 업로드 <span className="text-red-500">*</span>
+                    </label>
+                    <div
+                      className={`border-2 border-dashed rounded-xl p-8 text-center transition-all ${
+                        pdfFile
+                          ? 'border-emerald-500 bg-emerald-50/50'
+                          : 'border-slate-300 hover:border-cyan-500 bg-white hover:bg-slate-50/50'
+                      }`}
+                    >
+                      <input
+                        type="file"
+                        id="pdf-file-upload"
+                        accept=".pdf"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0] || null;
+                          setPdfFile(file);
+                        }}
+                      />
+                      <label htmlFor="pdf-file-upload" className="cursor-pointer block space-y-3">
+                        <div className="flex justify-center">
+                          <FileUp className={`w-10 h-10 ${pdfFile ? 'text-emerald-600' : 'text-slate-400'}`} />
+                        </div>
+                        <div>
+                          {pdfFile ? (
+                            <div className="space-y-1">
+                              <p className="font-semibold text-emerald-900">{pdfFile.name}</p>
+                              <p className="text-xs text-emerald-700">{(pdfFile.size / (1024 * 1024)).toFixed(2)} MB</p>
+                            </div>
+                          ) : (
+                            <div className="space-y-1">
+                              <p className="font-semibold text-slate-700">여기를 클릭하거나 PDF 파일을 끌어다 놓으세요.</p>
+                              <p className="text-xs text-slate-500">지원 형식: PDF (최대 10MB)</p>
+                            </div>
+                          )}
+                        </div>
+                      </label>
+                    </div>
+                    {pdfFile && (
+                      <button
+                        type="button"
+                        onClick={() => setPdfFile(null)}
+                        className="text-xs font-semibold text-red-500 hover:underline mt-2 flex items-center gap-1"
+                      >
+                        <Trash2 className="w-3 h-3" /> 파일 삭제
+                      </button>
+                    )}
+                  </div>
                 </div>
-
-              </div>
+              )}
 
               {errorMsg && (
                 <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-md text-sm flex items-start gap-2">
@@ -516,7 +618,7 @@ export default function Home() {
               <button
                 type="submit"
                 disabled={isAnyLoading}
-                onClick={(e) => handleGenerate(e, undefined, selectedBots[0] || 'general')}
+                onClick={(e) => handleGenerate(e, undefined, mode === 'keyword' ? (selectedBots[0] || 'general') : 'economy')}
                 className="w-full py-4 text-lg mt-8 disabled:opacity-70 disabled:cursor-not-allowed bg-[#00c73c] hover:bg-[#00a832] text-white font-bold rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
               >
                 {isGenerating ? (
@@ -527,7 +629,7 @@ export default function Home() {
                 ) : (
                   <>
                     <PenTool className="w-5 h-5" />
-                    {`입력된 키워드로 포스팅 생성 (${selectedBots[0] || 'general'} 썸네일)`}
+                    {mode === 'keyword' ? `입력된 키워드로 포스팅 생성 (${selectedBots[0] || 'general'} 썸네일)` : "PDF 리포트 분석하여 포스팅 생성 (전문 투자 썸네일)"}
                   </>
                 )}
               </button>
