@@ -30,7 +30,11 @@ const loadPdfJs = (): Promise<any> => {
 const extractTextFromPdfClient = async (file: File, maxPages: number = 20): Promise<string> => {
   const pdfjsLib = await loadPdfJs();
   const arrayBuffer = await file.arrayBuffer();
-  const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+  const loadingTask = pdfjsLib.getDocument({
+    data: arrayBuffer,
+    cMapUrl: "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.4.120/cmaps/",
+    cMapPacked: true,
+  });
   const pdf = await loadingTask.promise;
   
   let fullText = "";
