@@ -140,8 +140,19 @@ export default function Home() {
       }
 
       if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.error || '생성 중 오류가 발생했습니다.');
+        let errMsg = `생성 중 오류가 발생했습니다. (상태 코드: ${response.status})`;
+        try {
+          const errData = await response.json();
+          if (errData.error) errMsg = errData.error;
+        } catch (_) {
+          try {
+            const rawText = await response.clone().text();
+            if (rawText) {
+              errMsg += ` - ${rawText.substring(0, 100)}`;
+            }
+          } catch (__) {}
+        }
+        throw new Error(errMsg);
       }
 
       const reader = response.body?.getReader();

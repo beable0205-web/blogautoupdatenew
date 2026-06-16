@@ -22,7 +22,7 @@ export async function POST(req: Request) {
     
     let pdfText = "";
     try {
-      const pdfData = await pdf(buffer);
+      const pdfData = await pdf(buffer, { max: 20 });
       pdfText = pdfData.text || "";
     } catch (parseError) {
       console.error("PDF Parsing Error:", parseError);
