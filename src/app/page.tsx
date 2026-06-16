@@ -3,6 +3,55 @@
 import { useState } from "react";
 import { Sparkles, Copy, CheckCircle2, PenTool, Loader2, AlertCircle, Lightbulb, TrendingUp, DollarSign, FileUp, Trash2 } from "lucide-react";
 
+// 클라이언트 사이드 PDF.js 라이브러리 동적 로드
+const loadPdfJs = (): Promise<any> => {
+  return new Promise((resolve, reject) => {
+    if (typeof window === "undefined") {
+      reject(new Error("브라우저 환경이 필요합니다."));
+      return;
+    }
+    if ((window as any).pdfjsLib) {
+      resolve((window as any).pdfjsLib);
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js";
+    script.onload = () => {
+      const pdfjsLib = (window as any).pdfjsLib;
+      pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js";
+      resolve(pdfjsLib);
+    };
+    script.onerror = () => reject(new Error("PDF.js 라이브러리를 로드하는 데 실패했습니다."));
+    document.head.appendChild(script);
+  });
+};
+
+// 클라이언트 사이드 PDF 텍스트 추출 (최대 20페이지)
+const extractTextFromPdfClient = async (file: File, maxPages: number = 20): Promise<string> => {
+  const pdfjsLib = await loadPdfJs();
+  const arrayBuffer = await file.arrayBuffer();
+  const loadingTask = pdfjsLib.getDocument({ data: arrayBuffer });
+  const pdf = await loadingTask.promise;
+  
+  let fullText = "";
+  const pagesToParse = Math.min(pdf.numPages, maxPages);
+  
+  for (let i = 1; i <= pagesToParse; i++) {
+    try {
+      const page = await pdf.getPage(i);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items
+        .map((item: any) => item.str)
+        .join(" ");
+      fullText += pageText + "\n";
+    } catch (pageErr) {
+      console.error(`페이지 ${i} 파싱 에러:`, pageErr);
+    }
+  }
+  
+  return fullText;
+};
+
 export default function Home() {
   const [keyword, setKeyword] = useState("");
   const [bcTitle, setBcTitle] = useState("");
@@ -128,14 +177,28 @@ export default function Home() {
           body: JSON.stringify({ keyword: currentKeyword, deviceType: 'mobile', category }),
         });
       } else {
-        const formData = new FormData();
-        formData.append("file", pdfFile!);
-        formData.append("deviceType", "mobile");
-        formData.append("category", category);
+        // 클라이언트 사이드에서 PDF 텍스트 추출 (대용량 파일 413 Payload Too Large 방지)
+        let extractedText = "";
+        try {
+          extractedText = await extractTextFromPdfClient(pdfFile!);
+        } catch (pdfErr: any) {
+          throw new Error(`PDF 파일 분석 중 오류가 발생했습니다: ${pdfErr.message || pdfErr}`);
+        }
+
+        if (!extractedText || extractedText.trim().length < 50) {
+          throw new Error("PDF 파일에서 읽을 수 있는 텍스트가 너무 적거나 없습니다. 스캔된 이미지 형식이거나 보안이 적용된 파일인지 확인해 주세요.");
+        }
 
         response = await fetch('/api/generate-pdf', {
           method: 'POST',
-          body: formData,
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            pdfText: extractedText,
+            deviceType: "mobile",
+            category,
+          }),
         });
       }
 

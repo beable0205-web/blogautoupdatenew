@@ -7,30 +7,13 @@ export const maxDuration = 300; // Vercel 서버리스 타임아웃 300초 연�
 
 export async function POST(req: Request) {
   try {
-    const formData = await req.formData();
-    const file = formData.get("file") as File;
-    const deviceType = (formData.get("deviceType") as string) || "desktop";
-    const category = (formData.get("category") as string) || "economy";
+    const body = await req.json();
+    const pdfText = body.pdfText as string;
+    const deviceType = (body.deviceType as string) || "desktop";
+    const category = (body.category as string) || "economy";
 
-    if (!file) {
-      return NextResponse.json({ error: "PDF 파일이 필요합니다." }, { status: 400 });
-    }
-
-    // PDF 파일 파싱
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
-    
-    let pdfText = "";
-    try {
-      const pdfData = await pdf(buffer, { max: 20 });
-      pdfText = pdfData.text || "";
-    } catch (parseError) {
-      console.error("PDF Parsing Error:", parseError);
-      return NextResponse.json({ error: "PDF 파일을 해석하는 데 실패했습니다. 파일이 깨졌거나 암호화되었는지 확인해 주세요." }, { status: 500 });
-    }
-
-    if (!pdfText.trim()) {
-      return NextResponse.json({ error: "PDF 파일에서 읽을 수 있는 텍스트를 찾을 수 없습니다." }, { status: 400 });
+    if (!pdfText || !pdfText.trim()) {
+      return NextResponse.json({ error: "해석할 PDF 텍스트 내용이 유효하지 않습니다." }, { status: 400 });
     }
 
     // 1단계: 썸네일 카피 및 키워드 추출 (JSON 추출)
